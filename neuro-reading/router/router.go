@@ -8,6 +8,7 @@ import (
 	"neuro-reading/bookshelf"
 	"neuro-reading/comment"
 	"neuro-reading/config"
+	"neuro-reading/creator"
 	"neuro-reading/feed"
 	"neuro-reading/middleware"
 	"neuro-reading/paragraph_comment"
@@ -35,6 +36,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	authorHandler := author.NewHandler()
 	feedHandler := feed.NewHandler()
 	articleHandler := article.NewHandler(cfg)
+	creatorHandler := creator.NewHandler(cfg)
 
 	api := r.Group("/api/v1")
 
@@ -131,6 +133,18 @@ func Setup(cfg *config.Config) *gin.Engine {
 		articleGroup.GET("/:articleId/chapters/:chapterIndex", articleHandler.Chapter)
 		articleGroup.POST("/upload", middleware.AuthMiddleware(&cfg.JWT), articleHandler.Upload)
 		articleGroup.DELETE("/:articleId", middleware.AuthMiddleware(&cfg.JWT), articleHandler.Delete)
+	}
+
+	creatorGroup := api.Group("/creator")
+	{
+		creatorGroup.POST("/register", creatorHandler.Register)
+		creatorGroup.POST("/login", creatorHandler.Login)
+		creatorGroup.GET("/profile", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetProfile)
+		creatorGroup.PUT("/profile", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UpdateProfile)
+		creatorGroup.GET("/articles", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetArticles)
+		creatorGroup.POST("/articles/upload", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadArticle)
+		creatorGroup.DELETE("/articles/:articleId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.DeleteArticle)
+		creatorGroup.GET("/stats", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetStats)
 	}
 
 	r.GET("/uploads/:filename", func(c *gin.Context) {

@@ -35,5 +35,7 @@ func autoMigrate() error {
 		&model.Follow{},
 		&model.Like{},
 		&model.FeedActivity{},
+		&model.Creator{},
+		&model.ArticleStats{},
 	)
 }

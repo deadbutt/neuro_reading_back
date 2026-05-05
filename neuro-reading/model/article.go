@@ -2,6 +2,7 @@ package model
 
 type ArticleIndex struct {
 	ArticleID      string   `json:"articleId"`
+	CreatorID      string   `json:"creatorId,omitempty"`
 	Title          string   `json:"title"`
 	Author         string   `json:"author"`
 	Summary        string   `json:"summary"`
@@ -14,6 +15,7 @@ type ArticleIndex struct {
 
 type ArticleMeta struct {
 	ArticleID      string        `json:"articleId"`
+	CreatorID      string        `json:"creatorId,omitempty"`
 	Title          string        `json:"title"`
 	Author         string        `json:"author"`
 	Summary        string        `json:"summary"`
