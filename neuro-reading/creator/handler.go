@@ -3,6 +3,8 @@ package creator
 import (
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"neuro-reading/config"
 	"neuro-reading/db"
 	"neuro-reading/model"
@@ -10,9 +12,11 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/disintegration/imaging"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -114,9 +118,9 @@ func (h *Handler) Login(c *gin.Context) {
 func (h *Handler) GetProfile(c *gin.Context) {
 	creatorID := c.GetString("userId")
 
-	var creator model.Creator
-	if err := db.DB.Where("creator_id = ?", creatorID).First(&creator).Error; err != nil {
-		c.JSON(404, model.Error(1004, "创作者不存在"))
+	creator, err := h.getOrCreateCreator(creatorID)
+	if err != nil {
+		c.JSON(404, model.Error(1004, "用户不存在"))
 		return
 	}
 
@@ -162,12 +166,50 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	c.JSON(200, model.Success(nil))
 }
 
+func (h *Handler) getOrCreateCreator(userID string) (*model.Creator, error) {
+	var creator model.Creator
+	err := db.DB.Where("creator_id = ?", userID).First(&creator).Error
+	if err == nil {
+		return &creator, nil
+	}
+
+	var user model.User
+	if err := db.DB.Where("user_id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+
+	now := time.Now().Format("2006-01-02 15:04:05")
+	creator = model.Creator{
+		CreatorID:     user.UserID,
+		Account:       user.Account,
+		Password:      user.Password,
+		Name:          user.Nickname,
+		Avatar:        user.Avatar,
+		Description:   user.Bio,
+		CreateTime:    now,
+		LastLoginTime: now,
+		Status:        1,
+	}
+
+	if err := db.DB.Create(&creator).Error; err != nil {
+		return nil, err
+	}
+
+	return &creator, nil
+}
+
 func (h *Handler) CreateWork(c *gin.Context) {
 	creatorID := c.GetString("userId")
 
 	var req model.CreateWorkRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, model.Error(1001, "参数错误"))
+		return
+	}
+
+	creator, err := h.getOrCreateCreator(creatorID)
+	if err != nil {
+		c.JSON(404, model.Error(1004, "用户不存在"))
 		return
 	}
 
@@ -182,6 +224,7 @@ func (h *Handler) CreateWork(c *gin.Context) {
 		ArticleID:      articleID,
 		CreatorID:      creatorID,
 		Title:          req.Title,
+		Author:         creator.Name,
 		Summary:        req.Summary,
 		Tags:           req.Tags,
 		Cover:          req.Cover,
@@ -198,6 +241,7 @@ func (h *Handler) CreateWork(c *gin.Context) {
 
 	c.JSON(200, model.Success(gin.H{
 		"articleId": articleID,
+		"creatorId": creatorID,
 		"title":     req.Title,
 		"status":    "draft",
 	}))
@@ -493,12 +537,19 @@ func (h *Handler) PublishWork(c *gin.Context) {
 
 	c.JSON(200, model.Success(gin.H{
 		"articleId": articleID,
+		"creatorId": creatorID,
 		"status":    "published",
 	}))
 }
 
 func (h *Handler) UploadDocx(c *gin.Context) {
 	creatorID := c.GetString("userId")
+
+	creator, err := h.getOrCreateCreator(creatorID)
+	if err != nil {
+		c.JSON(404, model.Error(1004, "用户不存在"))
+		return
+	}
 
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -538,6 +589,7 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 		ArticleID:      articleID,
 		CreatorID:      creatorID,
 		Title:          title,
+		Author:         creator.Name,
 		Summary:        "",
 		Status:         "draft",
 		WordCount:      chapter.WordCount,
@@ -618,10 +670,13 @@ func (h *Handler) addToIndex(meta *model.ArticleMeta) {
 		ArticleID:      meta.ArticleID,
 		CreatorID:      meta.CreatorID,
 		Title:          meta.Title,
+		Author:         meta.Author,
 		Summary:        meta.Summary,
-		Tags:           meta.Tags,
+		Cover:          meta.Cover,
 		WordCount:      meta.WordCount,
 		ChapterCount:   meta.ChapterCount,
+		Tags:           meta.Tags,
+		Status:         meta.Status,
 		LastUpdateTime: meta.LastUpdateTime,
 	}
 	index = append([]model.ArticleIndex{indexItem}, index...)
@@ -636,10 +691,13 @@ func (h *Handler) updateIndex(meta *model.ArticleMeta) {
 				ArticleID:      meta.ArticleID,
 				CreatorID:      meta.CreatorID,
 				Title:          meta.Title,
+				Author:         meta.Author,
 				Summary:        meta.Summary,
-				Tags:           meta.Tags,
+				Cover:          meta.Cover,
 				WordCount:      meta.WordCount,
 				ChapterCount:   meta.ChapterCount,
+				Tags:           meta.Tags,
+				Status:         meta.Status,
 				LastUpdateTime: meta.LastUpdateTime,
 			}
 			break
@@ -761,4 +819,63 @@ func parseChapters(content string, articleTitle string) []ParsedChapter {
 type ParsedChapter struct {
 	Title   string
 	Content string
+}
+
+func (h *Handler) UploadCover(c *gin.Context) {
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(400, model.Error(1001, "请选择要上传的文件"))
+		return
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(path.Ext(header.Filename))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" {
+		c.JSON(400, model.Error(1001, "仅支持 jpg、png、webp 格式的图片"))
+		return
+	}
+
+	if header.Size > 5*1024*1024 {
+		c.JSON(400, model.Error(1001, "图片大小不能超过 5MB"))
+		return
+	}
+
+	coverDir := path.Join(h.cfg.UploadDir, "covers")
+	if err := os.MkdirAll(coverDir, 0755); err != nil {
+		c.JSON(500, model.Error(1005, "创建目录失败"))
+		return
+	}
+
+	filename := fmt.Sprintf("%d_%s.jpg", time.Now().Unix(), strconv.Itoa(int(time.Now().UnixNano()%10000)))
+	filePath := path.Join(coverDir, filename)
+
+	srcImage, _, err := image.Decode(file)
+	if err != nil {
+		c.JSON(400, model.Error(1001, "图片解析失败"))
+		return
+	}
+
+	resizedImage := imaging.Fill(srcImage, 400, 533, imaging.Center, imaging.Lanczos)
+
+	out, err := os.Create(filePath)
+	if err != nil {
+		c.JSON(500, model.Error(1005, "文件保存失败"))
+		return
+	}
+	defer out.Close()
+
+	if err := jpeg.Encode(out, resizedImage, &jpeg.Options{Quality: 85}); err != nil {
+		c.JSON(500, model.Error(1005, "图片压缩保存失败"))
+		return
+	}
+
+	baseURL := h.cfg.Server.PublicURL
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("http://%s:%s", h.cfg.Server.Host, h.cfg.Server.Port)
+	}
+	fileURL := fmt.Sprintf("%s/uploads/covers/%s", baseURL, filename)
+
+	c.JSON(200, model.Success(gin.H{
+		"url": fileURL,
+	}))
 }

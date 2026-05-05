@@ -152,6 +152,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		creatorGroup.PUT("/works/:workId/chapters/:chapterId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UpdateChapter)
 		creatorGroup.DELETE("/works/:workId/chapters/:chapterId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.DeleteChapter)
 		creatorGroup.POST("/works/upload/docx", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadDocx)
+		creatorGroup.POST("/works/upload/cover", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadCover)
 	}
 
 	r.GET("/uploads/:filename", func(c *gin.Context) {
@@ -162,6 +163,25 @@ func Setup(cfg *config.Config) *gin.Engine {
 		}
 
 		filePath := path.Join(cfg.UploadDir, filename)
+
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			c.JSON(404, gin.H{"code": 1004, "msg": "文件不存在"})
+			return
+		}
+
+		c.Header("Cache-Control", "public, max-age=2592000")
+		c.Header("Expires", time.Now().AddDate(0, 0, 30).Format(http.TimeFormat))
+		c.File(filePath)
+	})
+
+	r.GET("/uploads/covers/:filename", func(c *gin.Context) {
+		filename := c.Param("filename")
+		if filename == "" {
+			c.JSON(404, gin.H{"code": 1004, "msg": "文件不存在"})
+			return
+		}
+
+		filePath := path.Join(cfg.UploadDir, "covers", filename)
 
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			c.JSON(404, gin.H{"code": 1004, "msg": "文件不存在"})

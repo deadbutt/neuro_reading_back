@@ -1197,6 +1197,7 @@ POST /api/v1/creator/works
   "message": "创建成功",
   "data": {
     "articleId": "ar_1234567890",
+    "creatorId": "cr_1234567890",
     "title": "我的小说",
     "status": "draft"
   }
@@ -1361,6 +1362,7 @@ POST /api/v1/creator/works/{workId}/publish
   "message": "发布成功",
   "data": {
     "articleId": "ar_1234567890",
+    "creatorId": "cr_1234567890",
     "status": "published"
   }
 }
@@ -1530,6 +1532,50 @@ POST /api/v1/creator/works/upload/docx
 - 上传后自动创建作品，状态为 `draft`
 - 文件内容作为第一章，标题为作品标题
 - 自动生成摘要（取前200字）
+
+---
+
+### 51. 上传作品封面
+
+```http
+POST /api/v1/creator/works/upload/cover
+```
+
+**请求头：**
+- `Authorization: Bearer {token}`
+- `Content-Type: multipart/form-data`
+
+**请求参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| file | File | 是 | 封面图片文件，支持 jpg/png/webp，最大 5MB |
+
+**响应：**
+
+```json
+{
+  "code": 0,
+  "message": "上传成功",
+  "data": {
+    "url": "http://47.118.22.220:9091/uploads/covers/1714723456_1234.jpg"
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| url | string | 封面图片完整访问 URL |
+
+**业务说明：**
+- 上传成功后，将返回的 `url` 传给 `PUT /api/v1/creator/works/{workId}` 更新作品封面
+- 封面会自动压缩为 400x533 像素（3:4 比例），JPEG 质量 85%
+- 支持的格式：jpg、png、webp
+- 文件大小限制：5MB
+
+**使用流程：**
+1. 调用此接口上传封面图片，获取 `url`
+2. 调用 `PUT /api/v1/creator/works/{workId}`，传入 `cover: "url"` 更新作品封面
 
 ---
 
@@ -1974,3 +2020,4 @@ POST /api/v1/upload/avatar
 | 48 | /creator/works/{workId}/chapters/{chapterIndex} | PUT | 更新章节 | 是 |
 | 49 | /creator/works/{workId}/chapters/{chapterIndex} | DELETE | 删除章节 | 是 |
 | 50 | /creator/works/upload/docx | POST | 上传docx文档 | 是 |
+| 51 | /creator/works/upload/cover | POST | 上传作品封面 | 是 |

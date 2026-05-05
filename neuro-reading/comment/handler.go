@@ -22,6 +22,9 @@ type CreateCommentRequest struct {
 
 func (h *Handler) GetComments(c *gin.Context) {
 	bookID := c.Param("bookId")
+	if bookID == "" {
+		bookID = c.Param("articleId")
+	}
 	sort := c.DefaultQuery("sort", "hot")
 
 	var req model.PageRequest
@@ -101,6 +104,9 @@ func (h *Handler) GetComments(c *gin.Context) {
 func (h *Handler) CreateComment(c *gin.Context) {
 	userID := c.GetString("userId")
 	bookID := c.Param("bookId")
+	if bookID == "" {
+		bookID = c.Param("articleId")
+	}
 
 	var req CreateCommentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
