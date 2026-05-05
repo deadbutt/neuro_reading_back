@@ -1,8 +1,8 @@
 # Neuro 阅读 App API 文档
 
 > Android 客户端 API 接口文档
-> 版本：v1.2
-> 日期：2026-05-04
+> 版本：v1.3
+> 日期：2026-05-05
 
 ---
 
@@ -1039,10 +1039,134 @@ DELETE /api/v1/feed/{feedId}/like
 
 ## 创作中心模块
 
-### 36. 创建作品
+### 36. 创作者注册
 
 ```http
-POST /api/v1/works
+POST /api/v1/creator/register
+```
+
+**请求体：**
+
+```json
+{
+  "account": "writer001",
+  "password": "123456",
+  "confirmPassword": "123456",
+  "name": "作家小明",
+  "email": "writer@example.com"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| account | string | 是 | 账号，3-32字符 |
+| password | string | 是 | 密码，6-32字符 |
+| confirmPassword | string | 是 | 确认密码 |
+| name | string | 是 | 笔名，2-32字符 |
+| email | string | 是 | 邮箱 |
+
+**响应：**
+
+```json
+{
+  "code": 0,
+  "message": "注册成功",
+  "data": {
+    "creatorId": "cr_1234567890",
+    "account": "writer001",
+    "name": "作家小明",
+    "token": "eyJhbGciOiJIUzI1NiIs..."
+  }
+}
+```
+
+---
+
+### 37. 创作者登录
+
+```http
+POST /api/v1/creator/login
+```
+
+**请求体：**
+
+```json
+{
+  "account": "writer001",
+  "password": "123456"
+}
+```
+
+**响应：** 同注册
+
+---
+
+### 38. 获取创作者资料
+
+```http
+GET /api/v1/creator/profile
+```
+
+**请求头：** `Authorization: Bearer {token}`
+
+**响应：**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "creatorId": "cr_1234567890",
+    "account": "writer001",
+    "name": "作家小明",
+    "avatar": "https://example.com/avatar.jpg",
+    "description": "专注玄幻小说创作",
+    "email": "writer@example.com",
+    "articleCount": 5,
+    "createTime": "2026-05-04 10:00:00",
+    "lastLoginTime": "2026-05-04 15:30:00"
+  }
+}
+```
+
+---
+
+### 39. 更新创作者资料
+
+```http
+PUT /api/v1/creator/profile
+```
+
+**请求头：** `Authorization: Bearer {token}`
+
+**请求体：**
+
+```json
+{
+  "name": "新笔名",
+  "avatar": "https://example.com/new_avatar.jpg",
+  "description": "新的简介"
+}
+```
+
+**说明：** 所有字段均为可选，只传需要修改的字段
+
+**响应：**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": null
+}
+```
+
+---
+
+### 40. 创建作品
+
+```http
+POST /api/v1/creator/works
 ```
 
 **请求头：** `Authorization: Bearer {token}`
@@ -1072,7 +1196,7 @@ POST /api/v1/works
   "code": 0,
   "message": "创建成功",
   "data": {
-    "workId": "w_1234567890",
+    "articleId": "ar_1234567890",
     "title": "我的小说",
     "status": "draft"
   }
@@ -1081,10 +1205,10 @@ POST /api/v1/works
 
 ---
 
-### 37. 获取我的作品列表
+### 41. 获取我的作品列表
 
 ```http
-GET /api/v1/works/my?page=1&pageSize=20&status=all
+GET /api/v1/creator/works?page=1&pageSize=20&status=all
 ```
 
 **请求头：** `Authorization: Bearer {token}`
@@ -1104,15 +1228,15 @@ GET /api/v1/works/my?page=1&pageSize=20&status=all
   "data": {
     "list": [
       {
-        "workId": "w_1234567890",
+        "articleId": "ar_1234567890",
+        "creatorId": "cr_1234567890",
         "title": "我的小说",
         "summary": "这是一个关于...",
         "cover": "https://example.com/cover.jpg",
         "status": "draft",
         "chapterCount": 5,
         "wordCount": 50000,
-        "createTime": "2026-05-04 10:00:00",
-        "updateTime": "2026-05-04 15:30:00"
+        "lastUpdateTime": "2026-05-04 15:30:00"
       }
     ],
     "total": 3,
@@ -1125,10 +1249,10 @@ GET /api/v1/works/my?page=1&pageSize=20&status=all
 
 ---
 
-### 38. 获取作品详情（编辑用）
+### 42. 获取作品详情（编辑用）
 
 ```http
-GET /api/v1/works/{workId}
+GET /api/v1/creator/works/{workId}
 ```
 
 **请求头：** `Authorization: Bearer {token}`
@@ -1140,7 +1264,8 @@ GET /api/v1/works/{workId}
   "code": 0,
   "message": "success",
   "data": {
-    "workId": "w_1234567890",
+    "articleId": "ar_1234567890",
+    "creatorId": "cr_1234567890",
     "title": "我的小说",
     "summary": "这是一个关于...",
     "tags": ["玄幻", "热血"],
@@ -1148,27 +1273,25 @@ GET /api/v1/works/{workId}
     "status": "draft",
     "chapters": [
       {
+        "index": 0,
         "chapterId": "c_001",
         "title": "第一章 开始",
-        "wordCount": 3000,
-        "status": "published",
-        "createTime": "2026-05-04 10:00:00",
-        "updateTime": "2026-05-04 15:30:00"
+        "wordCount": 3000
       }
     ],
     "wordCount": 50000,
-    "createTime": "2026-05-04 10:00:00",
-    "updateTime": "2026-05-04 15:30:00"
+    "publishTime": "2026-05-04 10:00:00",
+    "lastUpdateTime": "2026-05-04 15:30:00"
   }
 }
 ```
 
 ---
 
-### 39. 更新作品信息
+### 43. 更新作品信息
 
 ```http
-PUT /api/v1/works/{workId}
+PUT /api/v1/creator/works/{workId}
 ```
 
 **请求头：** `Authorization: Bearer {token}`
@@ -1186,108 +1309,22 @@ PUT /api/v1/works/{workId}
 
 **说明：** 所有字段均为可选，只传需要修改的字段
 
-**响应：** 同获取作品详情
-
----
-
-### 40. 创建章节
-
-```http
-POST /api/v1/works/{workId}/chapters
-```
-
-**请求头：** `Authorization: Bearer {token}`
-
-**请求体：**
-
-```json
-{
-  "title": "第一章 开始",
-  "content": "正文内容...",
-  "status": "draft"
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| title | string | 是 | 章节标题，1-50字 |
-| content | string | 是 | 章节内容，支持富文本HTML |
-| status | string | 否 | `draft`=草稿, `published`=发布，默认draft |
-
 **响应：**
 
 ```json
 {
   "code": 0,
-  "message": "创建成功",
-  "data": {
-    "chapterId": "c_1234567890",
-    "title": "第一章 开始",
-    "wordCount": 3000,
-    "status": "draft"
-  }
+  "message": "更新成功",
+  "data": null
 }
 ```
 
 ---
 
-### 41. 获取章节内容（编辑用）
+### 44. 删除作品
 
 ```http
-GET /api/v1/works/{workId}/chapters/{chapterId}
-```
-
-**请求头：** `Authorization: Bearer {token}`
-
-**响应：**
-
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "chapterId": "c_1234567890",
-    "workId": "w_1234567890",
-    "title": "第一章 开始",
-    "content": "正文内容...",
-    "wordCount": 3000,
-    "status": "draft",
-    "createTime": "2026-05-04 10:00:00",
-    "updateTime": "2026-05-04 15:30:00"
-  }
-}
-```
-
----
-
-### 42. 更新章节
-
-```http
-PUT /api/v1/works/{workId}/chapters/{chapterId}
-```
-
-**请求头：** `Authorization: Bearer {token}`
-
-**请求体：**
-
-```json
-{
-  "title": "新的章节标题",
-  "content": "新的章节内容...",
-  "status": "published"
-}
-```
-
-**说明：** 所有字段均为可选，只传需要修改的字段
-
-**响应：** 同获取章节内容
-
----
-
-### 43. 删除章节
-
-```http
-DELETE /api/v1/works/{workId}/chapters/{chapterId}
+DELETE /api/v1/creator/works/{workId}
 ```
 
 **请求头：** `Authorization: Bearer {token}`
@@ -1304,16 +1341,16 @@ DELETE /api/v1/works/{workId}/chapters/{chapterId}
 
 ---
 
-### 44. 发布作品
+### 45. 发布作品
 
 ```http
-POST /api/v1/works/{workId}/publish
+POST /api/v1/creator/works/{workId}/publish
 ```
 
 **请求头：** `Authorization: Bearer {token}`
 
 **业务说明：**
-- 发布前需至少有一个已发布的章节
+- 发布前需至少有一个章节
 - 发布后作品状态变为 `published`，其他用户可见
 
 **响应：**
@@ -1323,7 +1360,7 @@ POST /api/v1/works/{workId}/publish
   "code": 0,
   "message": "发布成功",
   "data": {
-    "workId": "w_1234567890",
+    "articleId": "ar_1234567890",
     "status": "published"
   }
 }
@@ -1331,44 +1368,119 @@ POST /api/v1/works/{workId}/publish
 
 ---
 
-### 45. 上传作品封面
+### 46. 创建章节
 
 ```http
-POST /api/v1/upload/cover
+POST /api/v1/creator/works/{workId}/chapters
 ```
 
-**请求头：**
-- `Authorization: Bearer {token}`
-- `Content-Type: multipart/form-data`
+**请求头：** `Authorization: Bearer {token}`
 
 **请求体：**
 
+```json
+{
+  "title": "第一章 开始",
+  "content": "正文内容..."
+}
+```
+
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| file | File | 是 | 封面图片，支持 jpg/png，最大 2MB，建议比例 3:4 |
+| title | string | 是 | 章节标题，1-50字 |
+| content | string | 是 | 章节内容 |
 
 **响应：**
 
 ```json
 {
   "code": 0,
-  "message": "上传成功",
+  "message": "创建成功",
   "data": {
-    "filename": "cover_123456.jpg",
-    "url": "http://47.118.22.220:9091/uploads/covers/cover_123456.jpg"
+    "chapterId": "c_1234567890",
+    "index": 0,
+    "title": "第一章 开始",
+    "wordCount": 3000
   }
 }
 ```
 
 ---
 
-### 46. 删除作品
+### 47. 获取章节内容（编辑用）
 
 ```http
-DELETE /api/v1/works/{workId}
+GET /api/v1/creator/works/{workId}/chapters/{chapterIndex}
 ```
 
 **请求头：** `Authorization: Bearer {token}`
+
+**参数说明：**
+- `workId`: 作品ID（articleId）
+- `chapterIndex`: 章节索引（从0开始的数字，如 0, 1, 2...）
+
+**响应：**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "chapterId": "c_1234567890",
+    "index": 0,
+    "title": "第一章 开始",
+    "content": "正文内容...",
+    "wordCount": 3000
+  }
+}
+```
+
+---
+
+### 48. 更新章节
+
+```http
+PUT /api/v1/creator/works/{workId}/chapters/{chapterIndex}
+```
+
+**请求头：** `Authorization: Bearer {token}`
+
+**参数说明：**
+- `chapterIndex`: 章节索引（从0开始的数字）
+
+**请求体：**
+
+```json
+{
+  "title": "新的章节标题",
+  "content": "新的章节内容..."
+}
+```
+
+**说明：** 所有字段均为可选，只传需要修改的字段
+
+**响应：**
+
+```json
+{
+  "code": 0,
+  "message": "更新成功",
+  "data": null
+}
+```
+
+---
+
+### 49. 删除章节
+
+```http
+DELETE /api/v1/creator/works/{workId}/chapters/{chapterIndex}
+```
+
+**请求头：** `Authorization: Bearer {token}`
+
+**参数说明：**
+- `chapterIndex`: 章节索引（从0开始的数字）
 
 **响应：**
 
@@ -1382,35 +1494,42 @@ DELETE /api/v1/works/{workId}
 
 ---
 
-### 47. 章节排序
+### 50. 上传 docx 文档
 
 ```http
-PUT /api/v1/works/{workId}/chapters/order
+POST /api/v1/creator/works/upload/docx
 ```
 
-**请求头：** `Authorization: Bearer {token}`
+**请求头：**
+- `Authorization: Bearer {token}`
+- `Content-Type: multipart/form-data`
 
-**请求体：**
+**请求参数：**
 
-```json
-{
-  "chapterOrder": ["c_003", "c_001", "c_002"]
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
+| 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| chapterOrder | array | 是 | 章节ID数组，按新顺序排列 |
+| file | File | 是 | docx 文件 |
+| title | string | 否 | 作品标题，不传则使用文件名 |
 
 **响应：**
 
 ```json
 {
   "code": 0,
-  "message": "排序成功",
-  "data": null
+  "message": "上传成功",
+  "data": {
+    "articleId": "ar_1234567890",
+    "title": "我的小说",
+    "chapterCount": 1,
+    "wordCount": 5000
+  }
 }
 ```
+
+**业务说明：**
+- 上传后自动创建作品，状态为 `draft`
+- 文件内容作为第一章，标题为作品标题
+- 自动生成摘要（取前200字）
 
 ---
 
@@ -1638,6 +1757,49 @@ PUT /api/v1/works/{workId}/chapters/order
 }
 ```
 
+### CreatorProfileResponse
+
+```json
+{
+  "creatorId": "string",
+  "account": "string",
+  "name": "string",
+  "avatar": "string",
+  "description": "string",
+  "email": "string",
+  "articleCount": 0,
+  "createTime": "string",
+  "lastLoginTime": "string"
+}
+```
+
+### CreatorLoginResponse
+
+```json
+{
+  "creatorId": "string",
+  "account": "string",
+  "name": "string",
+  "token": "string"
+}
+```
+
+### WorkListItem
+
+```json
+{
+  "articleId": "string",
+  "creatorId": "string",
+  "title": "string",
+  "summary": "string",
+  "cover": "string",
+  "status": "string",
+  "chapterCount": 0,
+  "wordCount": 0,
+  "lastUpdateTime": "string"
+}
+```
+
 ---
 
 ## 附录
@@ -1797,3 +1959,18 @@ POST /api/v1/upload/avatar
 | 33 | /feed | GET | 获取关注流 | 是 |
 | 34 | /feed/{feedId}/like | POST | 点赞动态 | 是 |
 | 35 | /feed/{feedId}/like | DELETE | 取消点赞动态 | 是 |
+| 36 | /creator/register | POST | 创作者注册 | 否 |
+| 37 | /creator/login | POST | 创作者登录 | 否 |
+| 38 | /creator/profile | GET | 获取创作者资料 | 是 |
+| 39 | /creator/profile | PUT | 更新创作者资料 | 是 |
+| 40 | /creator/works | POST | 创建作品 | 是 |
+| 41 | /creator/works | GET | 获取我的作品列表 | 是 |
+| 42 | /creator/works/{workId} | GET | 获取作品详情 | 是 |
+| 43 | /creator/works/{workId} | PUT | 更新作品信息 | 是 |
+| 44 | /creator/works/{workId} | DELETE | 删除作品 | 是 |
+| 45 | /creator/works/{workId}/publish | POST | 发布作品 | 是 |
+| 46 | /creator/works/{workId}/chapters | POST | 创建章节 | 是 |
+| 47 | /creator/works/{workId}/chapters/{chapterIndex} | GET | 获取章节内容 | 是 |
+| 48 | /creator/works/{workId}/chapters/{chapterIndex} | PUT | 更新章节 | 是 |
+| 49 | /creator/works/{workId}/chapters/{chapterIndex} | DELETE | 删除章节 | 是 |
+| 50 | /creator/works/upload/docx | POST | 上传docx文档 | 是 |

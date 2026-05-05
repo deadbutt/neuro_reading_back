@@ -141,10 +141,17 @@ func Setup(cfg *config.Config) *gin.Engine {
 		creatorGroup.POST("/login", creatorHandler.Login)
 		creatorGroup.GET("/profile", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetProfile)
 		creatorGroup.PUT("/profile", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UpdateProfile)
-		creatorGroup.GET("/articles", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetArticles)
-		creatorGroup.POST("/articles/upload", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadArticle)
-		creatorGroup.DELETE("/articles/:articleId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.DeleteArticle)
-		creatorGroup.GET("/stats", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetStats)
+		creatorGroup.GET("/works", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetMyWorks)
+		creatorGroup.POST("/works", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.CreateWork)
+		creatorGroup.GET("/works/:workId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetWork)
+		creatorGroup.PUT("/works/:workId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UpdateWork)
+		creatorGroup.DELETE("/works/:workId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.DeleteWork)
+		creatorGroup.POST("/works/:workId/publish", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.PublishWork)
+		creatorGroup.POST("/works/:workId/chapters", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.CreateChapter)
+		creatorGroup.GET("/works/:workId/chapters/:chapterId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetChapter)
+		creatorGroup.PUT("/works/:workId/chapters/:chapterId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UpdateChapter)
+		creatorGroup.DELETE("/works/:workId/chapters/:chapterId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.DeleteChapter)
+		creatorGroup.POST("/works/upload/docx", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadDocx)
 	}
 
 	r.GET("/uploads/:filename", func(c *gin.Context) {

@@ -10,6 +10,7 @@ type ArticleIndex struct {
 	WordCount      int      `json:"wordCount"`
 	ChapterCount   int      `json:"chapterCount"`
 	Tags           []string `json:"tags,omitempty"`
+	Status         string   `json:"status"`
 	LastUpdateTime string   `json:"lastUpdateTime"`
 }
 

@@ -27,10 +27,8 @@ func NewHandler(cfg *config.Config) *Handler {
 	if articleDir == "" {
 		articleDir = "./articles"
 	}
-	return &Handler{
-		cfg:        cfg,
-		articleDir: articleDir,
-	}
+	os.MkdirAll(articleDir, 0755)
+	return &Handler{cfg: cfg, articleDir: articleDir}
 }
 
 func (h *Handler) Register(c *gin.Context) {
@@ -48,11 +46,6 @@ func (h *Handler) Register(c *gin.Context) {
 	var existing model.Creator
 	if err := db.DB.Where("account = ?", req.Account).First(&existing).Error; err == nil {
 		c.JSON(400, model.Error(2001, "账号已存在"))
-		return
-	}
-
-	if err := db.DB.Where("email = ?", req.Email).First(&existing).Error; err == nil {
-		c.JSON(400, model.Error(1001, "邮箱已被使用"))
 		return
 	}
 
@@ -79,7 +72,6 @@ func (h *Handler) Register(c *gin.Context) {
 		"creatorId": creator.CreatorID,
 		"account":   creator.Account,
 		"name":      creator.Name,
-		"avatar":    creator.Avatar,
 		"token":     token,
 	}))
 }
@@ -115,7 +107,6 @@ func (h *Handler) Login(c *gin.Context) {
 		"creatorId": creator.CreatorID,
 		"account":   creator.Account,
 		"name":      creator.Name,
-		"avatar":    creator.Avatar,
 		"token":     token,
 	}))
 }
@@ -129,8 +120,7 @@ func (h *Handler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	var articleCount int64
-	db.DB.Model(&model.ArticleMeta{}).Where("creator_id = ?", creatorID).Count(&articleCount)
+	articles := h.getCreatorArticles(creatorID)
 
 	c.JSON(200, model.Success(model.CreatorProfileResponse{
 		CreatorID:     creator.CreatorID,
@@ -139,7 +129,7 @@ func (h *Handler) GetProfile(c *gin.Context) {
 		Avatar:        creator.Avatar,
 		Description:   creator.Description,
 		Email:         creator.Email,
-		ArticleCount:  int(articleCount),
+		ArticleCount:  len(articles),
 		CreateTime:    creator.CreateTime,
 		LastLoginTime: creator.LastLoginTime,
 	}))
@@ -164,62 +154,350 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	if req.Description != "" {
 		updates["description"] = req.Description
 	}
-	if req.Email != "" {
-		updates["email"] = req.Email
-	}
 
 	if len(updates) > 0 {
-		if err := db.DB.Model(&model.Creator{}).Where("creator_id = ?", creatorID).Updates(updates).Error; err != nil {
-			c.JSON(500, model.Error(1005, "更新失败"))
-			return
-		}
+		db.DB.Model(&model.Creator{}).Where("creator_id = ?", creatorID).Updates(updates)
 	}
 
 	c.JSON(200, model.Success(nil))
 }
 
-func (h *Handler) GetArticles(c *gin.Context) {
+func (h *Handler) CreateWork(c *gin.Context) {
+	creatorID := c.GetString("userId")
+
+	var req model.CreateWorkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, model.Error(1001, "参数错误"))
+		return
+	}
+
+	articleID := utils.GenerateArticleID()
+	articlePath := path.Join(h.articleDir, articleID)
+	chaptersDir := path.Join(articlePath, "chapters")
+	os.MkdirAll(chaptersDir, 0755)
+
+	now := time.Now().Format("2006-01-02 15:04:05")
+
+	meta := &model.ArticleMeta{
+		ArticleID:      articleID,
+		CreatorID:      creatorID,
+		Title:          req.Title,
+		Summary:        req.Summary,
+		Tags:           req.Tags,
+		Cover:          req.Cover,
+		Status:         "draft",
+		WordCount:      0,
+		ChapterCount:   0,
+		PublishTime:    now,
+		LastUpdateTime: now,
+		Chapters:       []model.ChapterMeta{},
+	}
+
+	h.writeMeta(articleID, meta)
+	h.addToIndex(meta)
+
+	c.JSON(200, model.Success(gin.H{
+		"articleId": articleID,
+		"title":     req.Title,
+		"status":    "draft",
+	}))
+}
+
+func (h *Handler) GetMyWorks(c *gin.Context) {
 	creatorID := c.GetString("userId")
 
 	var req model.PageRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		req.Page = 1
-		req.PageSize = 10
+		req.PageSize = 20
 	}
 
-	indexPath := path.Join(h.articleDir, "index.json")
-	data, err := os.ReadFile(indexPath)
-	if err != nil {
-		c.JSON(200, model.PageSuccess([]interface{}{}, 0, req.Page, req.PageSize))
-		return
-	}
+	status := c.Query("status")
 
-	var allArticles []model.ArticleIndex
-	json.Unmarshal(data, &allArticles)
+	allArticles := h.getCreatorArticles(creatorID)
 
-	var creatorArticles []model.ArticleIndex
-	for _, article := range allArticles {
-		if article.CreatorID == creatorID {
-			creatorArticles = append(creatorArticles, article)
+	var filtered []model.ArticleIndex
+	for _, a := range allArticles {
+		if status == "" || status == "all" || a.Status == status {
+			filtered = append(filtered, a)
 		}
 	}
 
-	total := int64(len(creatorArticles))
-	start := req.GetOffset()
-	end := start + req.GetLimit()
-	if start > len(creatorArticles) {
-		start = len(creatorArticles)
+	total := int64(len(filtered))
+	start := (req.Page - 1) * req.PageSize
+	end := start + req.PageSize
+	if start > len(filtered) {
+		start = len(filtered)
 	}
-	if end > len(creatorArticles) {
-		end = len(creatorArticles)
+	if end > len(filtered) {
+		end = len(filtered)
 	}
 
-	list := creatorArticles[start:end]
+	list := filtered[start:end]
 
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
 }
 
-func (h *Handler) UploadArticle(c *gin.Context) {
+func (h *Handler) GetWork(c *gin.Context) {
+	creatorID := c.GetString("userId")
+	articleID := c.Param("workId")
+
+	meta, err := h.readMeta(articleID)
+	if err != nil || meta.CreatorID != creatorID {
+		c.JSON(404, model.Error(1004, "作品不存在"))
+		return
+	}
+
+	c.JSON(200, model.Success(meta))
+}
+
+func (h *Handler) UpdateWork(c *gin.Context) {
+	creatorID := c.GetString("userId")
+	articleID := c.Param("workId")
+
+	meta, err := h.readMeta(articleID)
+	if err != nil || meta.CreatorID != creatorID {
+		c.JSON(404, model.Error(1004, "作品不存在"))
+		return
+	}
+
+	var req model.UpdateWorkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, model.Error(1001, "参数错误"))
+		return
+	}
+
+	if req.Title != "" {
+		meta.Title = req.Title
+	}
+	if req.Summary != "" {
+		meta.Summary = req.Summary
+	}
+	if req.Tags != nil {
+		meta.Tags = req.Tags
+	}
+	if req.Cover != "" {
+		meta.Cover = req.Cover
+	}
+	meta.LastUpdateTime = time.Now().Format("2006-01-02 15:04:05")
+
+	h.writeMeta(articleID, meta)
+	h.updateIndex(meta)
+
+	c.JSON(200, model.Success(nil))
+}
+
+func (h *Handler) DeleteWork(c *gin.Context) {
+	creatorID := c.GetString("userId")
+	articleID := c.Param("workId")
+
+	meta, err := h.readMeta(articleID)
+	if err != nil || meta.CreatorID != creatorID {
+		c.JSON(404, model.Error(1004, "作品不存在"))
+		return
+	}
+
+	os.RemoveAll(path.Join(h.articleDir, articleID))
+	h.removeFromIndex(articleID)
+
+	c.JSON(200, model.Success(nil))
+}
+
+func (h *Handler) CreateChapter(c *gin.Context) {
+	creatorID := c.GetString("userId")
+	articleID := c.Param("workId")
+
+	meta, err := h.readMeta(articleID)
+	if err != nil || meta.CreatorID != creatorID {
+		c.JSON(404, model.Error(1004, "作品不存在"))
+		return
+	}
+
+	var req model.CreateChapterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, model.Error(1001, "参数错误"))
+		return
+	}
+
+	chapterIndex := len(meta.Chapters)
+	wordCount := len([]rune(req.Content))
+
+	chapter := model.ChapterMeta{
+		Index:     chapterIndex,
+		ChapterID: utils.GenerateChapterID(),
+		Title:     req.Title,
+		WordCount: wordCount,
+	}
+
+	chapterPath := path.Join(h.articleDir, articleID, "chapters", fmt.Sprintf("%d.txt", chapterIndex))
+	os.WriteFile(chapterPath, []byte(req.Content), 0644)
+
+	meta.Chapters = append(meta.Chapters, chapter)
+	meta.ChapterCount = len(meta.Chapters)
+	meta.WordCount += wordCount
+	meta.LastUpdateTime = time.Now().Format("2006-01-02 15:04:05")
+
+	h.writeMeta(articleID, meta)
+	h.updateIndex(meta)
+
+	c.JSON(200, model.Success(gin.H{
+		"chapterId":  chapter.ChapterID,
+		"index":      chapterIndex,
+		"title":      chapter.Title,
+		"wordCount":  wordCount,
+	}))
+}
+
+func (h *Handler) GetChapter(c *gin.Context) {
+	creatorID := c.GetString("userId")
+	articleID := c.Param("workId")
+	chapterIndexStr := c.Param("chapterId")
+
+	meta, err := h.readMeta(articleID)
+	if err != nil || meta.CreatorID != creatorID {
+		c.JSON(404, model.Error(1004, "作品不存在"))
+		return
+	}
+
+	chapterIndex := 0
+	fmt.Sscanf(chapterIndexStr, "%d", &chapterIndex)
+
+	if chapterIndex >= len(meta.Chapters) {
+		c.JSON(404, model.Error(1004, "章节不存在"))
+		return
+	}
+
+	chapter := meta.Chapters[chapterIndex]
+	content, err := h.readChapter(articleID, chapterIndex)
+	if err != nil {
+		c.JSON(500, model.Error(1005, "读取章节失败"))
+		return
+	}
+
+	c.JSON(200, model.Success(gin.H{
+		"chapterId":  chapter.ChapterID,
+		"index":      chapterIndex,
+		"title":      chapter.Title,
+		"content":    content,
+		"wordCount":  chapter.WordCount,
+	}))
+}
+
+func (h *Handler) UpdateChapter(c *gin.Context) {
+	creatorID := c.GetString("userId")
+	articleID := c.Param("workId")
+	chapterIndexStr := c.Param("chapterId")
+
+	meta, err := h.readMeta(articleID)
+	if err != nil || meta.CreatorID != creatorID {
+		c.JSON(404, model.Error(1004, "作品不存在"))
+		return
+	}
+
+	chapterIndex := 0
+	fmt.Sscanf(chapterIndexStr, "%d", &chapterIndex)
+
+	if chapterIndex >= len(meta.Chapters) {
+		c.JSON(404, model.Error(1004, "章节不存在"))
+		return
+	}
+
+	var req model.UpdateChapterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, model.Error(1001, "参数错误"))
+		return
+	}
+
+	oldWordCount := meta.Chapters[chapterIndex].WordCount
+
+	if req.Title != "" {
+		meta.Chapters[chapterIndex].Title = req.Title
+	}
+	if req.Content != "" {
+		chapterPath := path.Join(h.articleDir, articleID, "chapters", fmt.Sprintf("%d.txt", chapterIndex))
+		os.WriteFile(chapterPath, []byte(req.Content), 0644)
+		newWordCount := len([]rune(req.Content))
+		meta.Chapters[chapterIndex].WordCount = newWordCount
+		meta.WordCount = meta.WordCount - oldWordCount + newWordCount
+	}
+	meta.LastUpdateTime = time.Now().Format("2006-01-02 15:04:05")
+
+	h.writeMeta(articleID, meta)
+	h.updateIndex(meta)
+
+	c.JSON(200, model.Success(nil))
+}
+
+func (h *Handler) DeleteChapter(c *gin.Context) {
+	creatorID := c.GetString("userId")
+	articleID := c.Param("workId")
+	chapterIndexStr := c.Param("chapterId")
+
+	meta, err := h.readMeta(articleID)
+	if err != nil || meta.CreatorID != creatorID {
+		c.JSON(404, model.Error(1004, "作品不存在"))
+		return
+	}
+
+	chapterIndex := 0
+	fmt.Sscanf(chapterIndexStr, "%d", &chapterIndex)
+
+	if chapterIndex >= len(meta.Chapters) {
+		c.JSON(404, model.Error(1004, "章节不存在"))
+		return
+	}
+
+	removedWordCount := meta.Chapters[chapterIndex].WordCount
+
+	chapterPath := path.Join(h.articleDir, articleID, "chapters", fmt.Sprintf("%d.txt", chapterIndex))
+	os.Remove(chapterPath)
+
+	meta.Chapters = append(meta.Chapters[:chapterIndex], meta.Chapters[chapterIndex+1:]...)
+	for i := range meta.Chapters {
+		meta.Chapters[i].Index = i
+		oldPath := path.Join(h.articleDir, articleID, "chapters", fmt.Sprintf("%d.txt", i+1))
+		newPath := path.Join(h.articleDir, articleID, "chapters", fmt.Sprintf("%d.txt", i))
+		os.Rename(oldPath, newPath)
+	}
+
+	meta.ChapterCount = len(meta.Chapters)
+	meta.WordCount -= removedWordCount
+	meta.LastUpdateTime = time.Now().Format("2006-01-02 15:04:05")
+
+	h.writeMeta(articleID, meta)
+	h.updateIndex(meta)
+
+	c.JSON(200, model.Success(nil))
+}
+
+func (h *Handler) PublishWork(c *gin.Context) {
+	creatorID := c.GetString("userId")
+	articleID := c.Param("workId")
+
+	meta, err := h.readMeta(articleID)
+	if err != nil || meta.CreatorID != creatorID {
+		c.JSON(404, model.Error(1004, "作品不存在"))
+		return
+	}
+
+	if len(meta.Chapters) == 0 {
+		c.JSON(400, model.Error(1001, "发布前需至少有一个章节"))
+		return
+	}
+
+	meta.Status = "published"
+	meta.LastUpdateTime = time.Now().Format("2006-01-02 15:04:05")
+
+	h.writeMeta(articleID, meta)
+	h.updateIndex(meta)
+
+	c.JSON(200, model.Success(gin.H{
+		"articleId": articleID,
+		"status":    "published",
+	}))
+}
+
+func (h *Handler) UploadDocx(c *gin.Context) {
 	creatorID := c.GetString("userId")
 
 	file, header, err := c.Request.FormFile("file")
@@ -230,246 +508,166 @@ func (h *Handler) UploadArticle(c *gin.Context) {
 	defer file.Close()
 
 	title := c.PostForm("title")
-	summary := c.PostForm("summary")
-	tagsStr := c.PostForm("tags")
-
 	if title == "" {
-		c.JSON(400, model.Error(1001, "标题不能为空"))
-		return
-	}
-
-	ext := strings.ToLower(path.Ext(header.Filename))
-	if ext != ".txt" && ext != ".md" && ext != ".json" {
-		c.JSON(400, model.Error(1001, "仅支持 txt、md、json 格式"))
-		return
+		title = strings.TrimSuffix(header.Filename, ".docx")
 	}
 
 	content := make([]byte, header.Size)
-	_, err = file.Read(content)
-	if err != nil {
-		c.JSON(500, model.Error(1005, "读取文件失败"))
-		return
-	}
+	file.Read(content)
+
+	text := string(content)
 
 	articleID := utils.GenerateArticleID()
 	articlePath := path.Join(h.articleDir, articleID)
 	chaptersDir := path.Join(articlePath, "chapters")
-	if err := os.MkdirAll(chaptersDir, 0755); err != nil {
-		c.JSON(500, model.Error(1005, "创建目录失败"))
-		return
-	}
+	os.MkdirAll(chaptersDir, 0755)
 
 	now := time.Now().Format("2006-01-02 15:04:05")
 
-	var chapters []model.ChapterMeta
-	var totalWordCount int
-
-	if ext == ".json" {
-		var articleData struct {
-			Title    string `json:"title"`
-			Content  string `json:"content"`
-			Chapters []struct {
-				Title   string `json:"title"`
-				Content string `json:"content"`
-			} `json:"chapters"`
-		}
-		if err := json.Unmarshal(content, &articleData); err != nil {
-			c.JSON(400, model.Error(1001, "JSON格式错误"))
-			return
-		}
-		if articleData.Title != "" {
-			title = articleData.Title
-		}
-		if len(articleData.Chapters) > 0 {
-			for i, ch := range articleData.Chapters {
-				wordCount := len([]rune(ch.Content))
-				totalWordCount += wordCount
-				chapters = append(chapters, model.ChapterMeta{
-					Index:     i,
-					ChapterID: utils.GenerateChapterID(),
-					Title:     ch.Title,
-					WordCount: wordCount,
-				})
-				os.WriteFile(path.Join(chaptersDir, fmt.Sprintf("%d.txt", i)), []byte(ch.Content), 0644)
-			}
-		} else if articleData.Content != "" {
-			wordCount := len([]rune(articleData.Content))
-			totalWordCount = wordCount
-			chapters = append(chapters, model.ChapterMeta{
-				Index:     0,
-				ChapterID: utils.GenerateChapterID(),
-				Title:     title,
-				WordCount: wordCount,
-			})
-			os.WriteFile(path.Join(chaptersDir, "0.txt"), []byte(articleData.Content), 0644)
-		}
-	} else {
-		text := string(content)
-		parsedChapters := parseChapters(text, title)
-		if len(parsedChapters) == 0 {
-			wordCount := len([]rune(text))
-			totalWordCount = wordCount
-			chapters = []model.ChapterMeta{{
-				Index:     0,
-				ChapterID: utils.GenerateChapterID(),
-				Title:     title,
-				WordCount: wordCount,
-			}}
-			os.WriteFile(path.Join(chaptersDir, "0.txt"), content, 0644)
-		} else {
-			for i, ch := range parsedChapters {
-				wordCount := len([]rune(ch.Content))
-				totalWordCount += wordCount
-				chapters = append(chapters, model.ChapterMeta{
-					Index:     i,
-					ChapterID: utils.GenerateChapterID(),
-					Title:     ch.Title,
-					WordCount: wordCount,
-				})
-				os.WriteFile(path.Join(chaptersDir, fmt.Sprintf("%d.txt", i)), []byte(ch.Content), 0644)
-			}
-		}
+	chapter := model.ChapterMeta{
+		Index:     0,
+		ChapterID: utils.GenerateChapterID(),
+		Title:     title,
+		WordCount: len([]rune(text)),
 	}
 
-	var tags []string
-	if tagsStr != "" {
-		tags = strings.Split(tagsStr, ",")
-	}
-
-	if summary == "" && len(chapters) > 0 {
-		// Read first chapter for summary
-		firstChapterPath := path.Join(chaptersDir, "0.txt")
-		if data, err := os.ReadFile(firstChapterPath); err == nil {
-			summary = string(data)
-			if len(summary) > 200 {
-				summary = summary[:200] + "..."
-			}
-		}
-	}
+	chapterPath := path.Join(chaptersDir, "0.txt")
+	os.WriteFile(chapterPath, []byte(text), 0644)
 
 	meta := &model.ArticleMeta{
 		ArticleID:      articleID,
+		CreatorID:      creatorID,
 		Title:          title,
-		Author:         "",
-		Summary:        summary,
-		Tags:           tags,
-		WordCount:      totalWordCount,
-		ChapterCount:   len(chapters),
-		Status:         "published",
+		Summary:        "",
+		Status:         "draft",
+		WordCount:      chapter.WordCount,
+		ChapterCount:   1,
 		PublishTime:    now,
 		LastUpdateTime: now,
-		Chapters:       chapters,
+		Chapters:       []model.ChapterMeta{chapter},
 	}
 
-	metaData, _ := json.MarshalIndent(meta, "", "  ")
-	os.WriteFile(path.Join(articlePath, "meta.json"), metaData, 0644)
-
-	indexPath := path.Join(h.articleDir, "index.json")
-	var index []model.ArticleIndex
-	if indexData, err := os.ReadFile(indexPath); err == nil {
-		json.Unmarshal(indexData, &index)
+	if len(text) > 200 {
+		meta.Summary = text[:200] + "..."
+	} else {
+		meta.Summary = text
 	}
 
-	indexItem := model.ArticleIndex{
-		ArticleID:      articleID,
-		Title:          title,
-		Author:         "",
-		Summary:        summary,
-		WordCount:      totalWordCount,
-		ChapterCount:   len(chapters),
-		Tags:           tags,
-		LastUpdateTime: now,
-	}
-	indexItem.CreatorID = creatorID
-
-	index = append([]model.ArticleIndex{indexItem}, index...)
-	indexData, _ := json.MarshalIndent(index, "", "  ")
-	os.WriteFile(indexPath, indexData, 0644)
+	h.writeMeta(articleID, meta)
+	h.addToIndex(meta)
 
 	c.JSON(200, model.Success(gin.H{
 		"articleId":    articleID,
 		"title":        title,
-		"chapterCount": len(chapters),
-		"wordCount":    totalWordCount,
+		"chapterCount": 1,
+		"wordCount":    chapter.WordCount,
 	}))
 }
 
-func (h *Handler) DeleteArticle(c *gin.Context) {
-	creatorID := c.GetString("userId")
-	articleID := c.Param("articleId")
+func (h *Handler) getIndexPath() string {
+	return path.Join(h.articleDir, "index.json")
+}
 
-	articlePath := path.Join(h.articleDir, articleID)
-	metaPath := path.Join(articlePath, "meta.json")
+func (h *Handler) readIndex() ([]model.ArticleIndex, error) {
+	data, err := os.ReadFile(h.getIndexPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []model.ArticleIndex{}, nil
+		}
+		return nil, err
+	}
+	var index []model.ArticleIndex
+	json.Unmarshal(data, &index)
+	return index, nil
+}
 
+func (h *Handler) writeIndex(index []model.ArticleIndex) error {
+	data, _ := json.MarshalIndent(index, "", "  ")
+	return os.WriteFile(h.getIndexPath(), data, 0644)
+}
+
+func (h *Handler) readMeta(articleID string) (*model.ArticleMeta, error) {
+	metaPath := path.Join(h.articleDir, articleID, "meta.json")
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
-		c.JSON(404, model.Error(1004, "文章不存在"))
-		return
+		return nil, err
 	}
-
 	var meta model.ArticleMeta
 	json.Unmarshal(data, &meta)
+	return &meta, nil
+}
 
-	if meta.CreatorID != creatorID {
-		c.JSON(403, model.Error(1003, "无权删除此文章"))
-		return
+func (h *Handler) writeMeta(articleID string, meta *model.ArticleMeta) error {
+	metaPath := path.Join(h.articleDir, articleID, "meta.json")
+	data, _ := json.MarshalIndent(meta, "", "  ")
+	return os.WriteFile(metaPath, data, 0644)
+}
+
+func (h *Handler) readChapter(articleID string, index int) (string, error) {
+	chapterPath := path.Join(h.articleDir, articleID, "chapters", fmt.Sprintf("%d.txt", index))
+	data, err := os.ReadFile(chapterPath)
+	if err != nil {
+		return "", err
 	}
+	return string(data), nil
+}
 
-	os.RemoveAll(articlePath)
-
-	indexPath := path.Join(h.articleDir, "index.json")
-	var index []model.ArticleIndex
-	if indexData, err := os.ReadFile(indexPath); err == nil {
-		json.Unmarshal(indexData, &index)
+func (h *Handler) addToIndex(meta *model.ArticleMeta) {
+	index, _ := h.readIndex()
+	indexItem := model.ArticleIndex{
+		ArticleID:      meta.ArticleID,
+		CreatorID:      meta.CreatorID,
+		Title:          meta.Title,
+		Summary:        meta.Summary,
+		Tags:           meta.Tags,
+		WordCount:      meta.WordCount,
+		ChapterCount:   meta.ChapterCount,
+		LastUpdateTime: meta.LastUpdateTime,
 	}
+	index = append([]model.ArticleIndex{indexItem}, index...)
+	h.writeIndex(index)
+}
 
+func (h *Handler) updateIndex(meta *model.ArticleMeta) {
+	index, _ := h.readIndex()
+	for i, item := range index {
+		if item.ArticleID == meta.ArticleID {
+			index[i] = model.ArticleIndex{
+				ArticleID:      meta.ArticleID,
+				CreatorID:      meta.CreatorID,
+				Title:          meta.Title,
+				Summary:        meta.Summary,
+				Tags:           meta.Tags,
+				WordCount:      meta.WordCount,
+				ChapterCount:   meta.ChapterCount,
+				LastUpdateTime: meta.LastUpdateTime,
+			}
+			break
+		}
+	}
+	h.writeIndex(index)
+}
+
+func (h *Handler) removeFromIndex(articleID string) {
+	index, _ := h.readIndex()
 	var newIndex []model.ArticleIndex
 	for _, item := range index {
 		if item.ArticleID != articleID {
 			newIndex = append(newIndex, item)
 		}
 	}
-
-	indexData, _ := json.MarshalIndent(newIndex, "", "  ")
-	os.WriteFile(indexPath, indexData, 0644)
-
-	c.JSON(200, model.Success(nil))
+	h.writeIndex(newIndex)
 }
 
-func (h *Handler) GetStats(c *gin.Context) {
-	creatorID := c.GetString("userId")
-
-	indexPath := path.Join(h.articleDir, "index.json")
-	data, err := os.ReadFile(indexPath)
-	if err != nil {
-		c.JSON(200, model.Success(model.CreatorStatsResponse{}))
-		return
-	}
-
-	var allArticles []model.ArticleIndex
-	json.Unmarshal(data, &allArticles)
-
-	var creatorArticles []model.ArticleIndex
-	for _, article := range allArticles {
-		if article.CreatorID == creatorID {
-			creatorArticles = append(creatorArticles, article)
+func (h *Handler) getCreatorArticles(creatorID string) []model.ArticleIndex {
+	index, _ := h.readIndex()
+	var result []model.ArticleIndex
+	for _, item := range index {
+		if item.CreatorID == creatorID {
+			result = append(result, item)
 		}
 	}
-
-	stats := model.CreatorStatsResponse{
-		TotalArticles: len(creatorArticles),
-	}
-
-	for _, article := range creatorArticles {
-		stats.TotalWords += article.WordCount
-	}
-
-	c.JSON(200, model.Success(stats))
-}
-
-type ParsedChapter struct {
-	Title   string
-	Content string
+	return result
 }
 
 func parseChapters(content string, articleTitle string) []ParsedChapter {
@@ -480,7 +678,6 @@ func parseChapters(content string, articleTitle string) []ParsedChapter {
 		`(?m)^第[一二三四五六七八九十百千万零\d]+章[\s:：]*(.+?)$`,
 		`(?m)^【第[一二三四五六七八九十百千万零\d]+章】\s*$`,
 		`(?m)^第[一二三四五六七八九十百千万零\d]+章\s*$`,
-		`(?m)^Chapter\s+\d+[\s:：]*(.+?)$`,
 	}
 
 	var allMatches [][]int
@@ -496,16 +693,13 @@ func parseChapters(content string, articleTitle string) []ParsedChapter {
 			if len(match) >= 4 && match[2] >= 0 {
 				title = strings.TrimSpace(content[match[2]:match[3]])
 			}
-
 			if title == "" {
 				title = strings.TrimSpace(content[start:end])
 				title = strings.Trim(title, "【】")
 			}
-
 			if title == "" {
 				continue
 			}
-
 			allMatches = append(allMatches, match[:2])
 			matchTitles = append(matchTitles, title)
 		}
@@ -516,15 +710,12 @@ func parseChapters(content string, articleTitle string) []ParsedChapter {
 		matches := bracketPattern.FindAllStringSubmatchIndex(content, -1)
 		for i, match := range matches {
 			title := strings.TrimSpace(content[match[2]:match[3]])
-
 			if title == "" {
 				continue
 			}
-
 			if title == articleTitle && i > 0 {
 				continue
 			}
-
 			allMatches = append(allMatches, match[:2])
 			matchTitles = append(matchTitles, title)
 		}
@@ -546,11 +737,9 @@ func parseChapters(content string, articleTitle string) []ParsedChapter {
 	for i := 0; i < len(allMatches); i++ {
 		end := allMatches[i][1]
 		title := matchTitles[i]
-
 		if title == "" {
 			title = articleTitle
 		}
-
 		var chapterContent string
 		if i < len(allMatches)-1 {
 			nextStart := allMatches[i+1][0]
@@ -558,7 +747,6 @@ func parseChapters(content string, articleTitle string) []ParsedChapter {
 		} else {
 			chapterContent = strings.TrimSpace(content[end:])
 		}
-
 		if chapterContent != "" {
 			chapters = append(chapters, ParsedChapter{
 				Title:   title,
@@ -568,4 +756,9 @@ func parseChapters(content string, articleTitle string) []ParsedChapter {
 	}
 
 	return chapters
+}
+
+type ParsedChapter struct {
+	Title   string
+	Content string
 }

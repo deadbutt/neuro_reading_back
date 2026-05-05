@@ -46,6 +46,10 @@ func GenerateCreatorID() string {
 	return fmt.Sprintf("cr_%d", time.Now().UnixNano())
 }
 
+func GenerateWorkID() string {
+	return fmt.Sprintf("w_%d", time.Now().UnixNano())
+}
+
 func GenerateCode() string {
 	return fmt.Sprintf("%06d", rand.Intn(1000000))
 }
