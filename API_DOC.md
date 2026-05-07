@@ -1512,6 +1512,7 @@ POST /api/v1/creator/works/upload/docx
 |------|------|------|------|
 | file | File | 是 | docx 文件 |
 | title | string | 否 | 作品标题，不传则使用文件名 |
+| cover | string | 否 | 封面图片URL |
 
 **响应：**
 
@@ -1521,6 +1522,7 @@ POST /api/v1/creator/works/upload/docx
   "message": "上传成功",
   "data": {
     "articleId": "ar_1234567890",
+    "creatorId": "cr_1234567890",
     "title": "我的小说",
     "chapterCount": 1,
     "wordCount": 5000
@@ -1535,7 +1537,55 @@ POST /api/v1/creator/works/upload/docx
 
 ---
 
-### 51. 上传作品封面
+### 51. 上传 txt/md 文件创建作品
+
+```http
+POST /api/v1/creator/works/upload/txt
+```
+
+**请求头：**
+- `Authorization: Bearer {token}`
+- `Content-Type: multipart/form-data`
+
+**请求参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| file | File | 是 | txt 或 md 文件，最大 10MB |
+| title | string | 否 | 作品标题，不传则使用文件名 |
+| summary | string | 否 | 作品简介，不传则自动生成（取前200字） |
+| tags | string | 否 | 标签，逗号分隔，如 "玄幻,热血" |
+| cover | string | 否 | 封面图片URL |
+
+**响应：**
+
+```json
+{
+  "code": 0,
+  "message": "上传成功",
+  "data": {
+    "articleId": "ar_1234567890",
+    "creatorId": "cr_1234567890",
+    "title": "我的小说",
+    "chapterCount": 3,
+    "wordCount": 15000
+  }
+}
+```
+
+**业务说明：**
+- 上传后自动创建作品，状态为 `draft`
+- 自动解析章节（识别"第X章"、"# 标题"等格式）
+- 自动设置作者为当前创作者笔名
+- 无章节标记的整篇作为一章，标题为"正文"
+
+**分章规则：**
+- `.txt` 文件：识别 `第X章`、`第X节`、`序` 开头的行作为章节标题
+- `.md` 文件：识别 `# `、`## ` 开头的行作为章节标题
+
+---
+
+### 52. 上传作品封面
 
 ```http
 POST /api/v1/creator/works/upload/cover
@@ -2020,4 +2070,5 @@ POST /api/v1/upload/avatar
 | 48 | /creator/works/{workId}/chapters/{chapterIndex} | PUT | 更新章节 | 是 |
 | 49 | /creator/works/{workId}/chapters/{chapterIndex} | DELETE | 删除章节 | 是 |
 | 50 | /creator/works/upload/docx | POST | 上传docx文档 | 是 |
-| 51 | /creator/works/upload/cover | POST | 上传作品封面 | 是 |
+| 51 | /creator/works/upload/txt | POST | 上传txt/md创建作品 | 是 |
+| 52 | /creator/works/upload/cover | POST | 上传作品封面 | 是 |

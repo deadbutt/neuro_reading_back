@@ -152,6 +152,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		creatorGroup.PUT("/works/:workId/chapters/:chapterId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UpdateChapter)
 		creatorGroup.DELETE("/works/:workId/chapters/:chapterId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.DeleteChapter)
 		creatorGroup.POST("/works/upload/docx", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadDocx)
+		creatorGroup.POST("/works/upload/txt", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadTxt)
 		creatorGroup.POST("/works/upload/cover", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadCover)
 	}
 

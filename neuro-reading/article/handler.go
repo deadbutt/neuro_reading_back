@@ -127,22 +127,29 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 
-	total := int64(len(index))
+	var published []model.ArticleIndex
+	for _, item := range index {
+		if item.Status == "published" || item.Status == "" {
+			published = append(published, item)
+		}
+	}
 
-	sort.Slice(index, func(i, j int) bool {
-		return index[i].LastUpdateTime > index[j].LastUpdateTime
+	total := int64(len(published))
+
+	sort.Slice(published, func(i, j int) bool {
+		return published[i].LastUpdateTime > published[j].LastUpdateTime
 	})
 
 	start := req.GetOffset()
 	end := start + req.GetLimit()
-	if start > len(index) {
-		start = len(index)
+	if start > len(published) {
+		start = len(published)
 	}
-	if end > len(index) {
-		end = len(index)
+	if end > len(published) {
+		end = len(published)
 	}
 
-	list := index[start:end]
+	list := published[start:end]
 
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
 }
@@ -348,6 +355,7 @@ func (h *Handler) Upload(c *gin.Context) {
 		Summary:        summary,
 		WordCount:      totalWordCount,
 		ChapterCount:   len(chapters),
+		Status:         "published",
 		LastUpdateTime: now,
 	}
 
@@ -464,6 +472,9 @@ func (h *Handler) Search(c *gin.Context) {
 	var results []model.ArticleIndex
 	keyword = strings.ToLower(keyword)
 	for _, item := range index {
+		if item.Status != "published" && item.Status != "" {
+			continue
+		}
 		if strings.Contains(strings.ToLower(item.Title), keyword) ||
 			strings.Contains(strings.ToLower(item.Author), keyword) ||
 			strings.Contains(strings.ToLower(item.Summary), keyword) {

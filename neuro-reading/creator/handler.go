@@ -1,10 +1,14 @@
 package creator
 
 import (
+	"archive/zip"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"image"
 	"image/jpeg"
+	"image/png"
+	"io"
 	"neuro-reading/config"
 	"neuro-reading/db"
 	"neuro-reading/model"
@@ -563,10 +567,31 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 		title = strings.TrimSuffix(header.Filename, ".docx")
 	}
 
-	content := make([]byte, header.Size)
-	file.Read(content)
+	content, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(500, model.Error(1005, "读取文件失败"))
+		return
+	}
 
-	text := string(content)
+	text, err := h.parseDocx(content)
+	if err != nil {
+		c.JSON(400, model.Error(1001, "解析docx文件失败，请确保文件格式正确"))
+		return
+	}
+
+	parsedChapters := h.parseChapters(text, ".txt")
+
+	if len(parsedChapters) == 0 {
+		parsedChapters = []model.ChapterMeta{
+			{
+				Index:     0,
+				ChapterID: utils.GenerateChapterID(),
+				Title:     "正文",
+				WordCount: len([]rune(text)),
+				Content:   text,
+			},
+		}
+	}
 
 	articleID := utils.GenerateArticleID()
 	articlePath := path.Join(h.articleDir, articleID)
@@ -574,35 +599,55 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 	os.MkdirAll(chaptersDir, 0755)
 
 	now := time.Now().Format("2006-01-02 15:04:05")
+	totalWordCount := 0
 
-	chapter := model.ChapterMeta{
-		Index:     0,
-		ChapterID: utils.GenerateChapterID(),
-		Title:     title,
-		WordCount: len([]rune(text)),
+	chapters := make([]model.ChapterMeta, len(parsedChapters))
+	for i, ch := range parsedChapters {
+		ch.WordCount = len([]rune(ch.Content))
+		totalWordCount += ch.WordCount
+
+		chapters[i] = model.ChapterMeta{
+			Index:     i,
+			ChapterID: utils.GenerateChapterID(),
+			Title:     ch.Title,
+			WordCount: ch.WordCount,
+		}
+
+		chapterPath := path.Join(chaptersDir, fmt.Sprintf("%d.txt", i))
+		os.WriteFile(chapterPath, []byte(ch.Content), 0644)
 	}
 
-	chapterPath := path.Join(chaptersDir, "0.txt")
-	os.WriteFile(chapterPath, []byte(text), 0644)
+	summary := c.PostForm("summary")
+	if summary == "" {
+		if len(text) > 200 {
+			summary = text[:200] + "..."
+		} else {
+			summary = text
+		}
+	}
+
+	tagsStr := c.PostForm("tags")
+	var tags []string
+	if tagsStr != "" {
+		tags = strings.Split(tagsStr, ",")
+	}
+
+	cover := c.PostForm("cover")
 
 	meta := &model.ArticleMeta{
 		ArticleID:      articleID,
 		CreatorID:      creatorID,
 		Title:          title,
 		Author:         creator.Name,
-		Summary:        "",
+		Summary:        summary,
+		Tags:           tags,
+		Cover:          cover,
 		Status:         "draft",
-		WordCount:      chapter.WordCount,
-		ChapterCount:   1,
+		WordCount:      totalWordCount,
+		ChapterCount:   len(chapters),
 		PublishTime:    now,
 		LastUpdateTime: now,
-		Chapters:       []model.ChapterMeta{chapter},
-	}
-
-	if len(text) > 200 {
-		meta.Summary = text[:200] + "..."
-	} else {
-		meta.Summary = text
+		Chapters:       chapters,
 	}
 
 	h.writeMeta(articleID, meta)
@@ -610,10 +655,192 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 
 	c.JSON(200, model.Success(gin.H{
 		"articleId":    articleID,
+		"creatorId":    creatorID,
 		"title":        title,
-		"chapterCount": 1,
-		"wordCount":    chapter.WordCount,
+		"chapterCount": len(chapters),
+		"wordCount":    totalWordCount,
 	}))
+}
+
+func (h *Handler) UploadTxt(c *gin.Context) {
+	creatorID := c.GetString("userId")
+
+	creator, err := h.getOrCreateCreator(creatorID)
+	if err != nil {
+		c.JSON(404, model.Error(1004, "用户不存在"))
+		return
+	}
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(400, model.Error(1001, "请选择要上传的文件"))
+		return
+	}
+	defer file.Close()
+
+	title := c.PostForm("title")
+	if title == "" {
+		title = strings.TrimSuffix(header.Filename, path.Ext(header.Filename))
+	}
+
+	ext := strings.ToLower(path.Ext(header.Filename))
+	if ext != ".txt" && ext != ".md" {
+		c.JSON(400, model.Error(1001, "仅支持 txt 或 md 格式"))
+		return
+	}
+
+	if header.Size > 10*1024*1024 {
+		c.JSON(400, model.Error(1001, "文件大小不能超过 10MB"))
+		return
+	}
+
+	content := make([]byte, header.Size)
+	_, err = file.Read(content)
+	if err != nil {
+		c.JSON(500, model.Error(1005, "读取文件失败"))
+		return
+	}
+
+	text := string(content)
+	parsedChapters := h.parseChapters(text, ext)
+
+	if len(parsedChapters) == 0 {
+		parsedChapters = []model.ChapterMeta{
+			{
+				Index:     0,
+				ChapterID: utils.GenerateChapterID(),
+				Title:     "正文",
+				WordCount: len([]rune(text)),
+				Content:   text,
+			},
+		}
+	}
+
+	articleID := utils.GenerateArticleID()
+	articlePath := path.Join(h.articleDir, articleID)
+	chaptersDir := path.Join(articlePath, "chapters")
+	os.MkdirAll(chaptersDir, 0755)
+
+	now := time.Now().Format("2006-01-02 15:04:05")
+	totalWordCount := 0
+
+	chapters := make([]model.ChapterMeta, len(parsedChapters))
+	for i, ch := range parsedChapters {
+		ch.WordCount = len([]rune(ch.Content))
+		totalWordCount += ch.WordCount
+
+		chapters[i] = model.ChapterMeta{
+			Index:     i,
+			ChapterID: utils.GenerateChapterID(),
+			Title:     ch.Title,
+			WordCount: ch.WordCount,
+		}
+
+		chapterPath := path.Join(chaptersDir, fmt.Sprintf("%d.txt", i))
+		os.WriteFile(chapterPath, []byte(ch.Content), 0644)
+	}
+
+	summary := c.PostForm("summary")
+	if summary == "" {
+		if len(text) > 200 {
+			summary = text[:200] + "..."
+		} else {
+			summary = text
+		}
+	}
+
+	tagsStr := c.PostForm("tags")
+	var tags []string
+	if tagsStr != "" {
+		tags = strings.Split(tagsStr, ",")
+	}
+
+	cover := c.PostForm("cover")
+
+	meta := &model.ArticleMeta{
+		ArticleID:      articleID,
+		CreatorID:      creatorID,
+		Title:          title,
+		Author:         creator.Name,
+		Summary:        summary,
+		Tags:           tags,
+		Cover:          cover,
+		WordCount:      totalWordCount,
+		ChapterCount:   len(chapters),
+		Status:         "draft",
+		PublishTime:    now,
+		LastUpdateTime: now,
+		Chapters:       chapters,
+	}
+
+	h.writeMeta(articleID, meta)
+	h.addToIndex(meta)
+
+	c.JSON(200, model.Success(gin.H{
+		"articleId":    articleID,
+		"creatorId":    creatorID,
+		"title":        title,
+		"chapterCount": len(chapters),
+		"wordCount":    totalWordCount,
+	}))
+}
+
+func (h *Handler) parseChapters(text string, ext string) []model.ChapterMeta {
+	var chapters []model.ChapterMeta
+	lines := strings.Split(text, "\n")
+
+	var currentTitle string
+	var currentContent []string
+	var chapterIndex int
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		isChapterTitle := false
+		if ext == ".md" {
+			isChapterTitle = strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ")
+			if isChapterTitle {
+				line = strings.TrimPrefix(line, "# ")
+				line = strings.TrimPrefix(line, "## ")
+			}
+		} else {
+			if strings.HasPrefix(line, "第") && (strings.Contains(line, "章") || strings.Contains(line, "节") || strings.Contains(line, "序")) {
+				isChapterTitle = true
+			}
+		}
+
+		if isChapterTitle {
+			if currentTitle != "" && len(currentContent) > 0 {
+				chapters = append(chapters, model.ChapterMeta{
+					Index:     chapterIndex,
+					ChapterID: utils.GenerateChapterID(),
+					Title:     currentTitle,
+					WordCount: 0,
+					Content:   strings.Join(currentContent, "\n\n"),
+				})
+				chapterIndex++
+			}
+			currentTitle = line
+			currentContent = nil
+		} else {
+			currentContent = append(currentContent, line)
+		}
+	}
+
+	if currentTitle != "" && len(currentContent) > 0 {
+		chapters = append(chapters, model.ChapterMeta{
+			Index:     chapterIndex,
+			ChapterID: utils.GenerateChapterID(),
+			Title:     currentTitle,
+			WordCount: 0,
+			Content:   strings.Join(currentContent, "\n\n"),
+		})
+	}
+
+	return chapters
 }
 
 func (h *Handler) getIndexPath() string {
@@ -819,6 +1046,65 @@ func parseChapters(content string, articleTitle string) []ParsedChapter {
 type ParsedChapter struct {
 	Title   string
 	Content string
+}
+
+type docxDocument struct {
+	XMLName xml.Name `xml:"document"`
+	Body    struct {
+		Paragraphs []struct {
+			Runs []struct {
+				Text string `xml:"t"`
+			} `xml:"r"`
+		} `xml:"p"`
+	} `xml:"body"`
+}
+
+func (h *Handler) parseDocx(data []byte) (string, error) {
+	reader, err := zip.NewReader(strings.NewReader(string(data)), int64(len(data)))
+	if err != nil {
+		return "", err
+	}
+
+	var documentFile *zip.File
+	for _, f := range reader.File {
+		if f.Name == "word/document.xml" {
+			documentFile = f
+			break
+		}
+	}
+
+	if documentFile == nil {
+		return "", fmt.Errorf("invalid docx file: document.xml not found")
+	}
+
+	rc, err := documentFile.Open()
+	if err != nil {
+		return "", err
+	}
+	defer rc.Close()
+
+	content, err := io.ReadAll(rc)
+	if err != nil {
+		return "", err
+	}
+
+	var doc docxDocument
+	if err := xml.Unmarshal(content, &doc); err != nil {
+		return "", err
+	}
+
+	var paragraphs []string
+	for _, p := range doc.Body.Paragraphs {
+		var text string
+		for _, r := range p.Runs {
+			text += r.Text
+		}
+		if text != "" {
+			paragraphs = append(paragraphs, text)
+		}
+	}
+
+	return strings.Join(paragraphs, "\n\n"), nil
 }
 
 func (h *Handler) UploadCover(c *gin.Context) {
