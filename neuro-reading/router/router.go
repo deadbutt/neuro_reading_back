@@ -26,6 +26,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	r := gin.Default()
 
 	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.RateLimit())
 
 	authHandler := auth.NewHandler(cfg)
 	userHandler := user.NewHandler()

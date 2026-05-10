@@ -29,6 +29,7 @@ func autoMigrate() error {
 		&model.Author{},
 		&model.Book{},
 		&model.Chapter{},
+		&model.Article{},
 		&model.BookshelfItem{},
 		&model.Comment{},
 		&model.ParagraphComment{},
