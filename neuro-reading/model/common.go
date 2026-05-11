@@ -62,3 +62,41 @@ func PageSuccess(list interface{}, total int64, page, pageSize int) Response {
 		HasMore:  hasMore,
 	})
 }
+
+type SendCodeRequest struct {
+	Account string `json:"account" binding:"required"`
+	Type    string `json:"type" binding:"required,oneof=email qq"`
+}
+
+type LoginRequest struct {
+	Account  string `json:"account" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+type RegisterRequest struct {
+	Account         string `json:"account" binding:"required"`
+	Password        string `json:"password" binding:"required"`
+	ConfirmPassword string `json:"confirmPassword" binding:"required"`
+	Code            string `json:"code" binding:"required"`
+	Nickname        string `json:"nickname"`
+}
+
+type ForgotPasswordRequest struct {
+	Account     string `json:"account" binding:"required"`
+	Code        string `json:"code" binding:"required"`
+	NewPassword string `json:"newPassword" binding:"required"`
+}
+
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refreshToken" binding:"required"`
+}
+
+type LoginResponse struct {
+	UserID       string `json:"userId"`
+	Account      string `json:"account"`
+	Nickname     string `json:"nickname"`
+	Avatar       string `json:"avatar"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refreshToken"`
+	ExpiresIn    int64  `json:"expiresIn"`
+}

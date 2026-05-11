@@ -56,3 +56,11 @@ type ChapterMeta struct {
 	WordCount int    `json:"wordCount"`
 	Content   string `json:"-"`
 }
+
+type ArticleStats struct {
+	ID          uint64 `gorm:"primaryKey;autoIncrement" json:"-"`
+	ArticleID   string `gorm:"uniqueIndex;size:32" json:"articleId"`
+	ReadCount   int    `gorm:"default:0" json:"readCount"`
+	LikeCount   int    `gorm:"default:0" json:"likeCount"`
+	CommentCount int   `gorm:"default:0" json:"commentCount"`
+}

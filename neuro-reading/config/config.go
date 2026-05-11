@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Server     ServerConfig
 	Database   DatabaseConfig
+	Redis      RedisConfig
 	JWT        JWTConfig
 	SMS        SMSConfig
 	Email      EmailConfig
@@ -30,6 +31,13 @@ type DatabaseConfig struct {
 	Password string
 	Name     string
 	Charset  string
+}
+
+type RedisConfig struct {
+	Host     string
+	Port     string
+	Password string
+	DB       int
 }
 
 type JWTConfig struct {
@@ -69,6 +77,12 @@ func Load() *Config {
 			Name:     getEnv("DB_NAME", "neuro_reading"),
 			Charset:  "utf8mb4",
 		},
+		Redis: RedisConfig{
+			Host:     getEnv("REDIS_HOST", "localhost"),
+			Port:     getEnv("REDIS_PORT", "6379"),
+			Password: getEnv("REDIS_PASSWORD", ""),
+			DB:       getEnvInt("REDIS_DB", 0),
+		},
 		JWT: JWTConfig{
 			Secret:        getEnv("JWT_SECRET", "neuro-reading-secret-key-change-in-production"),
 			AccessExpiry:  7 * 24 * 3600,
@@ -105,6 +119,15 @@ func (c *Config) DSN() string {
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		var result int
+		fmt.Sscanf(value, "%d", &result)
+		return result
 	}
 	return defaultValue
 }

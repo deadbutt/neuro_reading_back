@@ -31,16 +31,3 @@ type FeedActivityResponse struct {
 	CommentCount    int    `json:"commentCount"`
 	IsLiked         bool   `json:"isLiked"`
 }
-
-type Follow struct {
-	ID         uint64 `gorm:"primaryKey;autoIncrement" json:"-"`
-	UserID     string `gorm:"size:32;index" json:"-"`
-	AuthorID   string `gorm:"size:32;index" json:"-"`
-}
-
-type Like struct {
-	ID       uint64 `gorm:"primaryKey;autoIncrement" json:"-"`
-	UserID   string `gorm:"size:32;index" json:"-"`
-	TargetID string `gorm:"size:32;index" json:"-"`
-	Type     string `gorm:"size:16;index" json:"-"`
-}

@@ -20,6 +20,19 @@ func Init(cfg *config.Config) error {
 		return err
 	}
 
+	sqlDB, err := DB.DB()
+	if err != nil {
+		return err
+	}
+
+	sqlDB.SetMaxOpenConns(25)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetConnMaxLifetime(0)
+
+	if err := InitRedis(cfg); err != nil {
+		return err
+	}
+
 	return autoMigrate()
 }
 
@@ -37,6 +50,8 @@ func autoMigrate() error {
 		&model.Like{},
 		&model.FeedActivity{},
 		&model.Creator{},
+		&model.Work{},
+		&model.WorkChapter{},
 		&model.ArticleStats{},
 	)
 }

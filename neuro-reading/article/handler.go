@@ -2,6 +2,7 @@ package article
 
 import (
 	"fmt"
+	"io"
 	"neuro-reading/config"
 	"neuro-reading/db"
 	"neuro-reading/model"
@@ -253,15 +254,14 @@ func (h *Handler) Upload(c *gin.Context) {
 		return
 	}
 
-	content := make([]byte, header.Size)
-	_, err = file.Read(content)
+	content, err := io.ReadAll(file)
 	if err != nil {
 		c.JSON(500, model.Error(1005, "读取文件失败"))
 		return
 	}
 
 	text := string(content)
-	parsedChapters := h.parseChapters(text, ext)
+	parsedChapters := utils.ParseChapters(text, ext)
 
 	if len(parsedChapters) == 0 {
 		parsedChapters = []model.ChapterMeta{
@@ -341,64 +341,6 @@ func (h *Handler) Upload(c *gin.Context) {
 		"title":     title,
 		"chapters":  len(parsedChapters),
 	}))
-}
-
-func (h *Handler) parseChapters(text string, ext string) []model.ChapterMeta {
-	var chapters []model.ChapterMeta
-	lines := strings.Split(text, "\n")
-
-	var currentTitle string
-	var currentContent []string
-	var chapterIndex int
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		isChapterTitle := false
-		if ext == ".md" {
-			isChapterTitle = strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ")
-			if isChapterTitle {
-				line = strings.TrimPrefix(line, "# ")
-				line = strings.TrimPrefix(line, "## ")
-			}
-		} else {
-			if strings.HasPrefix(line, "第") && (strings.Contains(line, "章") || strings.Contains(line, "节") || strings.Contains(line, "序")) {
-				isChapterTitle = true
-			}
-		}
-
-		if isChapterTitle {
-			if currentTitle != "" && len(currentContent) > 0 {
-				chapters = append(chapters, model.ChapterMeta{
-					Index:     chapterIndex,
-					ChapterID: utils.GenerateChapterID(),
-					Title:     currentTitle,
-					WordCount: 0,
-					Content:   strings.Join(currentContent, "\n\n"),
-				})
-				chapterIndex++
-			}
-			currentTitle = line
-			currentContent = nil
-		} else {
-			currentContent = append(currentContent, line)
-		}
-	}
-
-	if currentTitle != "" && len(currentContent) > 0 {
-		chapters = append(chapters, model.ChapterMeta{
-			Index:     chapterIndex,
-			ChapterID: utils.GenerateChapterID(),
-			Title:     currentTitle,
-			WordCount: 0,
-			Content:   strings.Join(currentContent, "\n\n"),
-		})
-	}
-
-	return chapters
 }
 
 func (h *Handler) Delete(c *gin.Context) {

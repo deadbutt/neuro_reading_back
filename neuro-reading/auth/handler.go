@@ -6,23 +6,10 @@ import (
 	"neuro-reading/db"
 	"neuro-reading/model"
 	"neuro-reading/utils"
-	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
-
-var (
-	codeStore = make(map[string]codeInfo)
-	codeMutex sync.RWMutex
-)
-
-type codeInfo struct {
-	Code      string
-	ExpiresAt time.Time
-	Type      string
-}
 
 type Handler struct {
 	cfg *config.Config
@@ -39,20 +26,16 @@ func (h *Handler) SendCode(c *gin.Context) {
 		return
 	}
 
-	codeMutex.Lock()
-	defer codeMutex.Unlock()
-
-	if info, exists := codeStore[req.Account]; exists && time.Now().Before(info.ExpiresAt.Add(-4*time.Minute)) {
-		c.JSON(400, model.Error(1001, "发送过于频繁，请稍后再试"))
+	if err := utils.StoreVerifyCode(req.Account, utils.GenerateCode(), req.Type); err != nil {
+		if err.Error() == "发送过于频繁" {
+			c.JSON(400, model.Error(1001, "发送过于频繁，请稍后再试"))
+			return
+		}
+		c.JSON(500, model.Error(1005, "服务器内部错误"))
 		return
 	}
 
-	code := utils.GenerateCode()
-	codeStore[req.Account] = codeInfo{
-		Code:      code,
-		ExpiresAt: time.Now().Add(5 * time.Minute),
-		Type:      req.Type,
-	}
+	code, _, _ := utils.GetVerifyCode(req.Account)
 
 	if req.Type == "email" && h.cfg.Email.FromEmail != "" {
 		emailCfg := &utils.EmailConfig{
@@ -93,7 +76,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	if user.Password != req.Password {
+	if !utils.CheckPassword(req.Password, user.Password) {
 		c.JSON(400, model.Error(2002, "账号或密码错误"))
 		return
 	}
@@ -133,11 +116,8 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	codeMutex.RLock()
-	info, exists := codeStore[req.Account]
-	codeMutex.RUnlock()
-
-	if !exists || info.Code != req.Code || time.Now().After(info.ExpiresAt) {
+	code, _, err := utils.GetVerifyCode(req.Account)
+	if err != nil || code != req.Code {
 		c.JSON(400, model.Error(2003, "验证码错误/过期"))
 		return
 	}
@@ -156,10 +136,16 @@ func (h *Handler) Register(c *gin.Context) {
 		}
 	}
 
+	hashedPassword, err := utils.HashPassword(req.Password)
+	if err != nil {
+		c.JSON(500, model.Error(1005, "服务器内部错误"))
+		return
+	}
+
 	user := model.User{
 		UserID:   utils.GenerateUserID(),
 		Account:  req.Account,
-		Password: req.Password,
+		Password: hashedPassword,
 		Nickname: nickname,
 		Avatar:   "",
 	}
@@ -169,9 +155,7 @@ func (h *Handler) Register(c *gin.Context) {
 		return
 	}
 
-	codeMutex.Lock()
-	delete(codeStore, req.Account)
-	codeMutex.Unlock()
+	utils.DeleteVerifyCode(req.Account)
 
 	token, _, err := utils.GenerateToken(user.UserID, "access", &h.cfg.JWT)
 	if err != nil {
@@ -203,11 +187,8 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	codeMutex.RLock()
-	info, exists := codeStore[req.Account]
-	codeMutex.RUnlock()
-
-	if !exists || info.Code != req.Code || time.Now().After(info.ExpiresAt) {
+	code, _, err := utils.GetVerifyCode(req.Account)
+	if err != nil || code != req.Code {
 		c.JSON(400, model.Error(2003, "验证码错误/过期"))
 		return
 	}
@@ -222,14 +203,18 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	if err := db.DB.Model(&user).Update("password", req.NewPassword).Error; err != nil {
+	hashedPassword, err := utils.HashPassword(req.NewPassword)
+	if err != nil {
 		c.JSON(500, model.Error(1005, "服务器内部错误"))
 		return
 	}
 
-	codeMutex.Lock()
-	delete(codeStore, req.Account)
-	codeMutex.Unlock()
+	if err := db.DB.Model(&user).Update("password", hashedPassword).Error; err != nil {
+		c.JSON(500, model.Error(1005, "服务器内部错误"))
+		return
+	}
+
+	utils.DeleteVerifyCode(req.Account)
 
 	c.JSON(200, model.Success(nil))
 }

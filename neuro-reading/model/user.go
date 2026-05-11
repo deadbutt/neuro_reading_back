@@ -8,7 +8,7 @@ type User struct {
 	ID           uint64    `gorm:"primaryKey;autoIncrement" json:"-"`
 	UserID       string    `gorm:"uniqueIndex;size:32" json:"userId"`
 	Account      string    `gorm:"uniqueIndex;size:64" json:"account"`
-	Password     string    `gorm:"size:64" json:"-"`
+	Password     string    `gorm:"size:255" json:"-"`
 	Nickname     string    `gorm:"size:64" json:"nickname"`
 	Avatar       string    `gorm:"size:255" json:"avatar"`
 	Bio          string    `gorm:"size:500" json:"bio"`
@@ -35,4 +35,19 @@ type UpdateProfileRequest struct {
 	Avatar   string `json:"avatar,omitempty"`
 	Bio      string `json:"bio,omitempty"`
 	Gender   *int   `json:"gender,omitempty"`
+}
+
+type Follow struct {
+	ID        uint64    `gorm:"primaryKey;autoIncrement" json:"-"`
+	UserID    string    `gorm:"index;size:32" json:"userId"`
+	AuthorID  string    `gorm:"index;size:32" json:"authorId"`
+	CreatedAt time.Time `json:"-"`
+}
+
+type Like struct {
+	ID       uint64    `gorm:"primaryKey;autoIncrement" json:"-"`
+	UserID   string    `gorm:"index;size:32" json:"userId"`
+	TargetID string    `gorm:"index;size:32" json:"targetId"`
+	Type     string    `gorm:"index;size:16" json:"type"`
+	CreatedAt time.Time `json:"-"`
 }

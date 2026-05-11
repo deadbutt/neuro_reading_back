@@ -54,13 +54,7 @@ func (h *Handler) GetRecommend(c *gin.Context) {
 	db.DB.Model(&model.Book{}).Count(&total)
 	db.DB.Order("rating DESC").Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&books)
 
-	var list []model.BookResponse
-	for _, book := range books {
-		var author model.Author
-		db.DB.Where("author_id = ?", book.AuthorID).First(&author)
-		list = append(list, h.buildBookResponse(book, author))
-	}
-
+	list := h.buildBookListWithAuthors(books)
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
 }
 
@@ -77,13 +71,7 @@ func (h *Handler) GetHot(c *gin.Context) {
 	db.DB.Model(&model.Book{}).Count(&total)
 	db.DB.Order("rating_count DESC").Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&books)
 
-	var list []model.BookResponse
-	for _, book := range books {
-		var author model.Author
-		db.DB.Where("author_id = ?", book.AuthorID).First(&author)
-		list = append(list, h.buildBookResponse(book, author))
-	}
-
+	list := h.buildBookListWithAuthors(books)
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
 }
 
@@ -100,14 +88,35 @@ func (h *Handler) GetLatest(c *gin.Context) {
 	db.DB.Model(&model.Book{}).Count(&total)
 	db.DB.Order("last_update_time DESC").Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&books)
 
-	var list []model.BookResponse
-	for _, book := range books {
-		var author model.Author
-		db.DB.Where("author_id = ?", book.AuthorID).First(&author)
-		list = append(list, h.buildBookResponse(book, author))
+	list := h.buildBookListWithAuthors(books)
+	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
+}
+
+func (h *Handler) buildBookListWithAuthors(books []model.Book) []model.BookResponse {
+	if len(books) == 0 {
+		return []model.BookResponse{}
 	}
 
-	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
+	authorIDs := make([]string, 0, len(books))
+	for _, book := range books {
+		authorIDs = append(authorIDs, book.AuthorID)
+	}
+
+	var authors []model.Author
+	authorMap := make(map[string]model.Author)
+	if len(authorIDs) > 0 {
+		db.DB.Where("author_id IN ?", authorIDs).Find(&authors)
+		for _, author := range authors {
+			authorMap[author.AuthorID] = author
+		}
+	}
+
+	list := make([]model.BookResponse, 0, len(books))
+	for _, book := range books {
+		author := authorMap[book.AuthorID]
+		list = append(list, h.buildBookResponse(book, author))
+	}
+	return list
 }
 
 func (h *Handler) GetDetail(c *gin.Context) {
@@ -275,13 +284,7 @@ func (h *Handler) Search(c *gin.Context) {
 	db.DB.Where("title LIKE ? OR description LIKE ?", "%"+keyword+"%", "%"+keyword+"%").
 		Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&books)
 
-	var list []model.BookResponse
-	for _, book := range books {
-		var author model.Author
-		db.DB.Where("author_id = ?", book.AuthorID).First(&author)
-		list = append(list, h.buildBookResponse(book, author))
-	}
-
+	list := h.buildBookListWithAuthors(books)
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
 }
 

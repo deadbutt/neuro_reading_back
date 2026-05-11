@@ -1,8 +1,6 @@
 package creator
 
 import (
-	"archive/zip"
-	"encoding/xml"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -55,10 +53,16 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	now := time.Now().Format("2006-01-02 15:04:05")
+	hashedPassword, err := utils.HashPassword(req.Password)
+	if err != nil {
+		c.JSON(500, model.Error(1005, "注册失败"))
+		return
+	}
+
 	creator := model.Creator{
 		CreatorID:     utils.GenerateCreatorID(),
 		Account:       req.Account,
-		Password:      req.Password,
+		Password:      hashedPassword,
 		Name:          req.Name,
 		Email:         req.Email,
 		CreateTime:    now,
@@ -98,7 +102,7 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	if creator.Password != req.Password {
+	if !utils.CheckPassword(req.Password, creator.Password) {
 		c.JSON(400, model.Error(2002, "账号或密码错误"))
 		return
 	}
@@ -185,6 +189,7 @@ func (h *Handler) getOrCreateCreator(userID string) (*model.Creator, error) {
 		CreatorID:     user.UserID,
 		Account:       user.Account,
 		Password:      user.Password,
+		// Note: user.Password is already hashed
 		Name:          user.Nickname,
 		Avatar:        user.Avatar,
 		Description:   user.Bio,
@@ -653,13 +658,13 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 		return
 	}
 
-	text, err := h.parseDocx(content)
+	text, err := utils.ParseDocx(content)
 	if err != nil {
 		c.JSON(400, model.Error(1001, "解析docx文件失败，请确保文件格式正确"))
 		return
 	}
 
-	parsedChapters := h.parseChapters(text, ".txt")
+	parsedChapters := utils.ParseChapters(text, ".txt")
 
 	if len(parsedChapters) == 0 {
 		parsedChapters = []model.ChapterMeta{
@@ -777,15 +782,14 @@ func (h *Handler) UploadTxt(c *gin.Context) {
 		return
 	}
 
-	content := make([]byte, header.Size)
-	_, err = file.Read(content)
+	content, err := io.ReadAll(file)
 	if err != nil {
 		c.JSON(500, model.Error(1005, "读取文件失败"))
 		return
 	}
 
 	text := string(content)
-	parsedChapters := h.parseChapters(text, ext)
+	parsedChapters := utils.ParseChapters(text, ext)
 
 	if len(parsedChapters) == 0 {
 		parsedChapters = []model.ChapterMeta{
@@ -871,123 +875,6 @@ func (h *Handler) UploadTxt(c *gin.Context) {
 	}))
 }
 
-func (h *Handler) parseChapters(text string, ext string) []model.ChapterMeta {
-	var chapters []model.ChapterMeta
-	lines := strings.Split(text, "\n")
-
-	var currentTitle string
-	var currentContent []string
-	var chapterIndex int
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		isChapterTitle := false
-		if ext == ".md" {
-			isChapterTitle = strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ")
-			if isChapterTitle {
-				line = strings.TrimPrefix(line, "# ")
-				line = strings.TrimPrefix(line, "## ")
-			}
-		} else {
-			if strings.HasPrefix(line, "第") && (strings.Contains(line, "章") || strings.Contains(line, "节") || strings.Contains(line, "序")) {
-				isChapterTitle = true
-			}
-		}
-
-		if isChapterTitle {
-			if currentTitle != "" && len(currentContent) > 0 {
-				chapters = append(chapters, model.ChapterMeta{
-					Index:     chapterIndex,
-					ChapterID: utils.GenerateChapterID(),
-					Title:     currentTitle,
-					WordCount: 0,
-					Content:   strings.Join(currentContent, "\n\n"),
-				})
-				chapterIndex++
-			}
-			currentTitle = line
-			currentContent = nil
-		} else {
-			currentContent = append(currentContent, line)
-		}
-	}
-
-	if currentTitle != "" && len(currentContent) > 0 {
-		chapters = append(chapters, model.ChapterMeta{
-			Index:     chapterIndex,
-			ChapterID: utils.GenerateChapterID(),
-			Title:     currentTitle,
-			WordCount: 0,
-			Content:   strings.Join(currentContent, "\n\n"),
-		})
-	}
-
-	return chapters
-}
-
-type docxDocument struct {
-	XMLName xml.Name `xml:"document"`
-	Body    struct {
-		Paragraphs []struct {
-			Runs []struct {
-				Text string `xml:"t"`
-			} `xml:"r"`
-		} `xml:"p"`
-	} `xml:"body"`
-}
-
-func (h *Handler) parseDocx(data []byte) (string, error) {
-	reader, err := zip.NewReader(strings.NewReader(string(data)), int64(len(data)))
-	if err != nil {
-		return "", err
-	}
-
-	var documentFile *zip.File
-	for _, f := range reader.File {
-		if f.Name == "word/document.xml" {
-			documentFile = f
-			break
-		}
-	}
-
-	if documentFile == nil {
-		return "", fmt.Errorf("invalid docx file: document.xml not found")
-	}
-
-	rc, err := documentFile.Open()
-	if err != nil {
-		return "", err
-	}
-	defer rc.Close()
-
-	content, err := io.ReadAll(rc)
-	if err != nil {
-		return "", err
-	}
-
-	var doc docxDocument
-	if err := xml.Unmarshal(content, &doc); err != nil {
-		return "", err
-	}
-
-	var paragraphs []string
-	for _, p := range doc.Body.Paragraphs {
-		var text string
-		for _, r := range p.Runs {
-			text += r.Text
-		}
-		if text != "" {
-			paragraphs = append(paragraphs, text)
-		}
-	}
-
-	return strings.Join(paragraphs, "\n\n"), nil
-}
-
 func (h *Handler) UploadCover(c *gin.Context) {
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -1019,6 +906,12 @@ func (h *Handler) UploadCover(c *gin.Context) {
 	srcImage, _, err := image.Decode(file)
 	if err != nil {
 		c.JSON(400, model.Error(1001, "图片解析失败"))
+		return
+	}
+
+	bounds := srcImage.Bounds()
+	if bounds.Dx() > 8192 || bounds.Dy() > 8192 {
+		c.JSON(400, model.Error(1001, "图片尺寸过大，最大支持 8192x8192"))
 		return
 	}
 
