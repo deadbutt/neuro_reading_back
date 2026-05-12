@@ -651,6 +651,9 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 	if title == "" {
 		title = strings.TrimSuffix(header.Filename, ".docx")
 	}
+	if len([]rune(title)) > 100 {
+		title = string([]rune(title)[:100])
+	}
 
 	content, err := io.ReadAll(file)
 	if err != nil {
@@ -687,8 +690,9 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 
 	summary := c.PostForm("summary")
 	if summary == "" {
-		if len(text) > 200 {
-			summary = text[:200] + "..."
+		runes := []rune(text)
+		if len(runes) > 200 {
+			summary = string(runes[:200]) + "..."
 		} else {
 			summary = text
 		}
@@ -697,11 +701,16 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 	tagsStr := c.PostForm("tags")
 	cover := c.PostForm("cover")
 
+	author := creator.Name
+	if len([]rune(author)) > 50 {
+		author = string([]rune(author)[:50])
+	}
+
 	article := model.Article{
 		ArticleID:  articleID,
 		CreatorID:  creatorID,
 		Title:      title,
-		Author:     creator.Name,
+		Author:     author,
 		Summary:    summary,
 		Tags:       tagsStr,
 		Cover:      cover,
@@ -770,6 +779,9 @@ func (h *Handler) UploadTxt(c *gin.Context) {
 	if title == "" {
 		title = strings.TrimSuffix(header.Filename, path.Ext(header.Filename))
 	}
+	if len([]rune(title)) > 100 {
+		title = string([]rune(title)[:100])
+	}
 
 	ext := strings.ToLower(path.Ext(header.Filename))
 	if ext != ".txt" && ext != ".md" {
@@ -812,8 +824,9 @@ func (h *Handler) UploadTxt(c *gin.Context) {
 
 	summary := c.PostForm("summary")
 	if summary == "" {
-		if len(text) > 200 {
-			summary = text[:200] + "..."
+		runes := []rune(text)
+		if len(runes) > 200 {
+			summary = string(runes[:200]) + "..."
 		} else {
 			summary = text
 		}
@@ -822,11 +835,16 @@ func (h *Handler) UploadTxt(c *gin.Context) {
 	tagsStr := c.PostForm("tags")
 	cover := c.PostForm("cover")
 
+	author := creator.Name
+	if len([]rune(author)) > 50 {
+		author = string([]rune(author)[:50])
+	}
+
 	article := model.Article{
 		ArticleID:  articleID,
 		CreatorID:  creatorID,
 		Title:      title,
-		Author:     creator.Name,
+		Author:     author,
 		Summary:    summary,
 		Tags:       tagsStr,
 		Cover:      cover,
