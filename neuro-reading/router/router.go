@@ -58,6 +58,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 		userGroup.POST("/follow/:authorId", userHandler.Follow)
 		userGroup.DELETE("/follow/:authorId", userHandler.Unfollow)
 		userGroup.GET("/following", userHandler.GetFollowing)
+		userGroup.GET("/reading-history", userHandler.GetReadingHistory)
+		userGroup.DELETE("/reading-history/:historyId", userHandler.DeleteReadingHistory)
+		userGroup.DELETE("/reading-history", userHandler.ClearReadingHistory)
 	}
 
 	bookshelfGroup := api.Group("/bookshelf")

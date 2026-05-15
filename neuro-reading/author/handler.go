@@ -80,7 +80,7 @@ func (h *Handler) GetWorks(c *gin.Context) {
 	var author model.Author
 	db.DB.Where("author_id = ?", authorID).First(&author)
 
-	var list []model.BookResponse
+	list := make([]model.BookResponse, 0)
 	for _, book := range books {
 		var tags []string
 		if book.Tags != "" {
@@ -125,7 +125,7 @@ func (h *Handler) GetActivities(c *gin.Context) {
 	db.DB.Model(&model.FeedActivity{}).Where("author_id = ?", authorID).Count(&total)
 	db.DB.Where("author_id = ?", authorID).Order("publish_time DESC").Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&activities)
 
-	var list []model.AuthorActivityResponse
+	list := make([]model.AuthorActivityResponse, 0)
 	for _, activity := range activities {
 		list = append(list, model.AuthorActivityResponse{
 			ActivityID:     activity.FeedID,

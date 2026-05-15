@@ -39,7 +39,7 @@ func (h *Handler) GetFeed(c *gin.Context) {
 		db.DB.Where("author_id IN ?", authorIDs).Order("publish_time DESC").Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&activities)
 	}
 
-	var list []model.FeedActivityResponse
+	list := make([]model.FeedActivityResponse, 0)
 	for _, activity := range activities {
 		var isLiked bool
 		var like model.Like

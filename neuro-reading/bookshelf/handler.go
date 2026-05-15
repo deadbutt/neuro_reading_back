@@ -3,6 +3,7 @@ package bookshelf
 import (
 	"neuro-reading/db"
 	"neuro-reading/model"
+	"neuro-reading/user"
 	"neuro-reading/utils"
 
 	"github.com/gin-gonic/gin"
@@ -29,29 +30,28 @@ func (h *Handler) GetList(c *gin.Context) {
 	db.DB.Model(&model.BookshelfItem{}).Where("user_id = ?", userID).Count(&total)
 	db.DB.Where("user_id = ?", userID).Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&items)
 
-	var list []model.BookshelfItemResponse
+	list := make([]model.BookshelfItemResponse, 0)
 	for _, item := range items {
-		var book model.Book
-		if err := db.DB.Where("book_id = ?", item.BookID).First(&book).Error; err != nil {
+		var article model.Article
+		if err := db.DB.Where("article_id = ?", item.BookID).First(&article).Error; err != nil {
 			continue
 		}
 
-		var author model.Author
-		db.DB.Where("author_id = ?", book.AuthorID).First(&author)
+		var chapterIndex int
+		var chapter model.Chapter
+		if err := db.DB.Where("chapter_id = ?", item.ChapterID).First(&chapter).Error; err == nil {
+			chapterIndex = chapter.Index
+		}
 
 		list = append(list, model.BookshelfItemResponse{
-			BookID: item.BookID,
-			Title:  book.Title,
-			Author: model.AuthorResponse{
-				AuthorID:    author.AuthorID,
-				Name:        author.Name,
-				Avatar:      author.Avatar,
-				Description: author.Description,
-			},
-			Cover:           book.Cover,
+			ArticleID:       item.BookID,
+			Title:           article.Title,
+			Author:          article.Author,
+			Cover:           article.Cover,
 			LastReadChapter: item.LastReadChapter,
 			LastReadTime:    item.LastReadTime,
 			Progress:        item.Progress,
+			ChapterIndex:    chapterIndex,
 			IsFinished:      item.IsFinished,
 		})
 	}
@@ -82,6 +82,16 @@ func (h *Handler) Add(c *gin.Context) {
 	if err := db.DB.Create(&item).Error; err != nil {
 		c.JSON(500, model.Error(1005, "服务器内部错误"))
 		return
+	}
+
+	var article model.Article
+	if err := db.DB.Where("article_id = ?", bookID).First(&article).Error; err == nil {
+		var chapter model.Chapter
+		chapterTitle := ""
+		if err := db.DB.Where("book_id = ?", bookID).Order("`index` ASC").First(&chapter).Error; err == nil {
+			chapterTitle = chapter.Title
+		}
+		user.RecordReadingHistory(userID, bookID, 0, 0, 0, chapterTitle)
 	}
 
 	c.JSON(200, model.Success(nil))
@@ -120,7 +130,7 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 	}
 
 	var chapter model.Chapter
-	if err := db.DB.Where("chapter_id = ?", req.ChapterID).First(&chapter).Error; err != nil {
+	if err := db.DB.Where("book_id = ? AND `index` = ?", bookID, req.ChapterIndex).First(&chapter).Error; err != nil {
 		c.JSON(400, model.Error(1004, "资源不存在"))
 		return
 	}
@@ -138,7 +148,7 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{
-		"chapter_id":        req.ChapterID,
+		"chapter_id":        chapter.ChapterID,
 		"progress":          req.Progress,
 		"position":          req.Position,
 		"last_read_chapter": chapter.Title,
@@ -150,6 +160,8 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 		c.JSON(500, model.Error(1005, "服务器内部错误"))
 		return
 	}
+
+	user.RecordReadingHistory(userID, bookID, chapter.Index, req.Progress, req.Position, chapter.Title)
 
 	c.JSON(200, model.Success(nil))
 }

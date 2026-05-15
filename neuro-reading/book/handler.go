@@ -201,7 +201,7 @@ func (h *Handler) GetChapters(c *gin.Context) {
 		return
 	}
 
-	var list []model.ChapterResponse
+	list := make([]model.ChapterResponse, 0)
 	for _, ch := range chapters {
 		list = append(list, model.ChapterResponse{
 			ChapterID:  ch.ChapterID,

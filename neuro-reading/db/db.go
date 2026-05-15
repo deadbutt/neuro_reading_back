@@ -53,5 +53,6 @@ func autoMigrate() error {
 		&model.Work{},
 		&model.WorkChapter{},
 		&model.ArticleStats{},
+		&model.ReadingHistory{},
 	)
 }

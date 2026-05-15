@@ -51,7 +51,7 @@ func (h *Handler) GetComments(c *gin.Context) {
 	query.Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&comments)
 
 	userID := c.GetString("userId")
-	var list []model.CommentResponse
+	list := make([]model.CommentResponse, 0)
 	for _, comment := range comments {
 		var user model.User
 		db.DB.Where("user_id = ?", comment.UserID).First(&user)

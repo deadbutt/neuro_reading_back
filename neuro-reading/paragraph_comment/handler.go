@@ -33,7 +33,7 @@ func (h *Handler) GetList(c *gin.Context) {
 	query.Order("create_time DESC").Find(&comments)
 
 	userID := c.GetString("userId")
-	var list []model.ParagraphCommentResponse
+	list := make([]model.ParagraphCommentResponse, 0)
 	for _, comment := range comments {
 		var user model.User
 		db.DB.Where("user_id = ?", comment.UserID).First(&user)

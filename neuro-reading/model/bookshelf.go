@@ -13,18 +13,19 @@ type BookshelfItem struct {
 }
 
 type BookshelfItemResponse struct {
-	BookID          string         `json:"bookId"`
-	Title           string         `json:"title"`
-	Author          AuthorResponse `json:"author"`
-	Cover           string         `json:"cover"`
-	LastReadChapter string         `json:"lastReadChapter"`
-	LastReadTime    string         `json:"lastReadTime"`
-	Progress        int            `json:"progress"`
-	IsFinished      bool           `json:"isFinished"`
+	ArticleID       string `json:"articleId"`
+	Title           string `json:"title"`
+	Author          string `json:"author"`
+	Cover           string `json:"cover"`
+	LastReadChapter string `json:"lastReadChapter"`
+	LastReadTime    string `json:"lastReadTime"`
+	Progress        int    `json:"progress"`
+	ChapterIndex    int    `json:"chapterIndex"`
+	IsFinished      bool   `json:"isFinished"`
 }
 
 type UpdateProgressRequest struct {
-	ChapterID string `json:"chapterId" binding:"required"`
-	Progress  int    `json:"progress" binding:"required,min=0,max=100"`
-	Position  int    `json:"position" binding:"required"`
+	ChapterIndex int `json:"chapterIndex" binding:"required,min=0"`
+	Progress     int `json:"progress" binding:"required,min=0,max=100"`
+	Position     int `json:"position" binding:"required"`
 }

@@ -51,3 +51,33 @@ type Like struct {
 	Type     string    `gorm:"index;size:16" json:"type"`
 	CreatedAt time.Time `json:"-"`
 }
+
+type ReadingHistory struct {
+	ID           uint64 `gorm:"primaryKey;autoIncrement" json:"-"`
+	HistoryID    string `gorm:"uniqueIndex;size:32" json:"historyId"`
+	UserID       string `gorm:"index;size:32" json:"-"`
+	ArticleID    string `gorm:"index;size:32" json:"articleId"`
+	Title        string `gorm:"size:128" json:"title"`
+	Author       string `gorm:"size:50" json:"author"`
+	Cover        string `gorm:"size:255" json:"cover"`
+	ChapterIndex int    `json:"chapterIndex"`
+	ChapterTitle string `gorm:"size:128" json:"chapterTitle"`
+	Progress     int    `json:"progress"`
+	Position     int    `json:"position"`
+	ReadTime     int    `json:"readTime"`
+	LastReadTime string `gorm:"size:32" json:"lastReadTime"`
+}
+
+type ReadingHistoryResponse struct {
+	HistoryID    string `json:"historyId"`
+	ArticleID    string `json:"articleId"`
+	Title        string `json:"title"`
+	Author       string `json:"author"`
+	Cover        string `json:"cover"`
+	ChapterIndex int    `json:"chapterIndex"`
+	ChapterTitle string `json:"chapterTitle"`
+	Progress     int    `json:"progress"`
+	Position     int    `json:"position"`
+	ReadTime     int    `json:"readTime"`
+	LastReadTime string `json:"lastReadTime"`
+}
