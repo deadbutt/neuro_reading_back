@@ -5,6 +5,8 @@ import (
 	"neuro-reading/db"
 	"neuro-reading/model"
 	"neuro-reading/utils"
+	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -13,11 +15,17 @@ import (
 )
 
 type Handler struct {
-	cfg *config.Config
+	cfg        *config.Config
+	articleDir string
 }
 
 func NewHandler(cfg *config.Config) *Handler {
-	return &Handler{cfg: cfg}
+	articleDir := cfg.ArticleDir
+	if articleDir == "" {
+		articleDir = "./articles"
+	}
+	os.MkdirAll(articleDir, 0755)
+	return &Handler{cfg: cfg, articleDir: articleDir}
 }
 
 func (h *Handler) CreateWork(c *gin.Context) {
@@ -205,6 +213,8 @@ func (h *Handler) DeleteWork(c *gin.Context) {
 
 	db.DB.Where("work_id = ?", workID).Delete(&model.WorkChapter{})
 	db.DB.Delete(&work)
+
+	os.RemoveAll(path.Join(h.articleDir, workID))
 
 	c.JSON(200, model.Success(nil))
 }

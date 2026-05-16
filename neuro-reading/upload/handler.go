@@ -6,7 +6,6 @@ import (
 	"image/gif"
 	"image/jpeg"
 	"image/png"
-	"io"
 	"neuro-reading/config"
 	"neuro-reading/db"
 	"neuro-reading/model"
@@ -115,6 +114,8 @@ func (h *Handler) UploadAvatar(c *gin.Context) {
 		baseURL = fmt.Sprintf("http://%s:%s", h.cfg.Server.Host, h.cfg.Server.Port)
 	}
 	fileURL := fmt.Sprintf("%s/uploads/%s", baseURL, filename)
+
+	db.DB.Model(&model.User{}).Where("user_id = ?", userID).Update("avatar", fileURL)
 
 	c.JSON(200, model.Success(map[string]string{
 		"filename": filename,

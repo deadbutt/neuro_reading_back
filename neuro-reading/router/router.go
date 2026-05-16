@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -142,7 +143,6 @@ func Setup(cfg *config.Config) *gin.Engine {
 	creatorGroup := api.Group("/creator")
 	{
 		creatorGroup.POST("/register", creatorHandler.Register)
-		creatorGroup.POST("/login", creatorHandler.Login)
 		creatorGroup.GET("/profile", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetProfile)
 		creatorGroup.PUT("/profile", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UpdateProfile)
 		creatorGroup.GET("/works", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetMyWorks)
@@ -162,7 +162,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 
 	r.GET("/uploads/:filename", func(c *gin.Context) {
 		filename := c.Param("filename")
-		if filename == "" {
+		if filename == "" || strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
 			c.JSON(404, gin.H{"code": 1004, "msg": "文件不存在"})
 			return
 		}
@@ -181,7 +181,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 
 	r.GET("/uploads/covers/:filename", func(c *gin.Context) {
 		filename := c.Param("filename")
-		if filename == "" {
+		if filename == "" || strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
 			c.JSON(404, gin.H{"code": 1004, "msg": "文件不存在"})
 			return
 		}
