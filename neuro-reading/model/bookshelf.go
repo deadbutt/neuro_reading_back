@@ -8,6 +8,7 @@ type BookshelfItem struct {
 	LastReadTime    string `gorm:"size:32" json:"lastReadTime"`
 	Progress        int    `gorm:"default:0" json:"progress"`
 	IsFinished      bool   `gorm:"default:false" json:"isFinished"`
+	IsFavorite      bool   `gorm:"default:false" json:"isFavorite"`
 	ChapterID       string `gorm:"size:32" json:"-"`
 	Position        int    `gorm:"default:0" json:"-"`
 }
@@ -22,6 +23,7 @@ type BookshelfItemResponse struct {
 	Progress        int    `json:"progress"`
 	ChapterIndex    int    `json:"chapterIndex"`
 	IsFinished      bool   `json:"isFinished"`
+	IsFavorite      bool   `json:"isFavorite"`
 }
 
 type UpdateProgressRequest struct {

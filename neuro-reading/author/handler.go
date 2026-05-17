@@ -19,10 +19,10 @@ func (h *Handler) GetProfile(c *gin.Context) {
 	authorID := c.Param("authorId")
 	userID := c.GetString("userId")
 
-	var author model.Author
-	if err := db.DB.Where("author_id = ?", authorID).First(&author).Error; err != nil {
+	var user model.User
+	if err := db.DB.Where("user_id = ?", authorID).First(&user).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(404, model.Error(1004, "资源不存在"))
+			c.JSON(404, model.Error(1004, "用户不存在"))
 			return
 		}
 		c.JSON(500, model.Error(1005, "服务器内部错误"))
@@ -30,16 +30,16 @@ func (h *Handler) GetProfile(c *gin.Context) {
 	}
 
 	var worksCount int64
-	db.DB.Model(&model.Book{}).Where("author_id = ?", authorID).Count(&worksCount)
+	db.DB.Model(&model.Article{}).Where("creator_id = ?", authorID).Count(&worksCount)
 
 	var followersCount int64
 	db.DB.Model(&model.Follow{}).Where("author_id = ?", authorID).Count(&followersCount)
 
 	var totalWords int64
-	var books []model.Book
-	db.DB.Where("author_id = ?", authorID).Find(&books)
-	for _, book := range books {
-		totalWords += book.WordCount
+	var articles []model.Article
+	db.DB.Where("creator_id = ?", authorID).Find(&articles)
+	for _, article := range articles {
+		totalWords += int64(article.WordCount)
 	}
 
 	var isFollowing bool
@@ -51,10 +51,10 @@ func (h *Handler) GetProfile(c *gin.Context) {
 	}
 
 	c.JSON(200, model.Success(model.AuthorProfileResponse{
-		AuthorID:       author.AuthorID,
-		Name:           author.Name,
-		Avatar:         author.Avatar,
-		Description:    author.Description,
+		AuthorID:       user.UserID,
+		Name:           user.Nickname,
+		Avatar:         user.Avatar,
+		Description:    user.Bio,
 		WorksCount:     int(worksCount),
 		FollowersCount: followersCount,
 		TotalWords:     totalWords,
@@ -71,39 +71,38 @@ func (h *Handler) GetWorks(c *gin.Context) {
 		req.PageSize = 20
 	}
 
-	var books []model.Book
+	var articles []model.Article
 	var total int64
 
-	db.DB.Model(&model.Book{}).Where("author_id = ?", authorID).Count(&total)
-	db.DB.Where("author_id = ?", authorID).Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&books)
+	db.DB.Model(&model.Article{}).Where("creator_id = ?", authorID).Count(&total)
+	db.DB.Where("creator_id = ?", authorID).Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&articles)
 
-	var author model.Author
-	db.DB.Where("author_id = ?", authorID).First(&author)
+	var user model.User
+	db.DB.Where("user_id = ?", authorID).First(&user)
 
 	list := make([]model.BookResponse, 0)
-	for _, book := range books {
+	for _, article := range articles {
 		var tags []string
-		if book.Tags != "" {
-			tags = strings.Split(book.Tags, ",")
+		if article.Tags != "" {
+			tags = strings.Split(article.Tags, ",")
 		}
 		list = append(list, model.BookResponse{
-			BookID: book.BookID,
-			Title:  book.Title,
+			BookID: article.ArticleID,
+			Title:  article.Title,
 			Author: model.AuthorResponse{
-				AuthorID:    author.AuthorID,
-				Name:        author.Name,
-				Avatar:      author.Avatar,
-				Description: author.Description,
+				AuthorID:    user.UserID,
+				Name:        user.Nickname,
+				Avatar:      user.Avatar,
+				Description: user.Bio,
 			},
-			Cover:          book.Cover,
-			Description:    book.Description,
-			HotText:        book.HotText,
-			WordCount:      book.WordCount,
-			ChapterCount:   book.ChapterCount,
-			Status:         book.Status,
+			Cover:          article.Cover,
+			Description:    article.Summary,
+			WordCount:      int64(article.WordCount),
+			ChapterCount:   article.ChapterCount,
+			Status:         article.Status,
 			Tags:           tags,
-			LastUpdateTime: book.LastUpdateTime,
-			IsVip:          book.IsVip,
+			LastUpdateTime: article.UpdatedAt.Format("2006-01-02 15:04:05"),
+			IsVip:          false,
 		})
 	}
 
@@ -146,4 +145,22 @@ func (h *Handler) GetActivities(c *gin.Context) {
 	}
 
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
+}
+
+func (h *Handler) GetFollowStatus(c *gin.Context) {
+	userID := c.GetString("userId")
+	authorID := c.Param("authorId")
+
+	if userID == "" {
+		c.JSON(200, model.Success(map[string]bool{"isFollowing": false}))
+		return
+	}
+
+	var isFollowing bool
+	var follow model.Follow
+	if err := db.DB.Where("user_id = ? AND author_id = ?", userID, authorID).First(&follow).Error; err == nil {
+		isFollowing = true
+	}
+
+	c.JSON(200, model.Success(map[string]bool{"isFollowing": isFollowing}))
 }

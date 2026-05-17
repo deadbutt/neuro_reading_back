@@ -336,6 +336,22 @@ func (h *Handler) Upload(c *gin.Context) {
 		"word_count": totalWordCount,
 	})
 
+	feed := model.FeedActivity{
+		FeedID:          utils.GenerateFeedID(),
+		AuthorID:        article.CreatorID,
+		AuthorName:      article.Author,
+		AuthorAvatar:    "",
+		PublishTime:     now.Format("2006-01-02 15:04:05"),
+		ActivityContent: fmt.Sprintf("发布了新作品《%s》", article.Title),
+		BookID:          article.ArticleID,
+		BookCover:       article.Cover,
+		ChapterPreview:  "",
+		ReadHeat:        "",
+		LikeCount:       0,
+		CommentCount:    0,
+	}
+	db.DB.Create(&feed)
+
 	c.JSON(200, model.Success(gin.H{
 		"articleId": articleID,
 		"title":     title,

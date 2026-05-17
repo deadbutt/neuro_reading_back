@@ -1,6 +1,7 @@
 package bookshelf
 
 import (
+	"fmt"
 	"neuro-reading/db"
 	"neuro-reading/model"
 	"neuro-reading/user"
@@ -24,11 +25,21 @@ func (h *Handler) GetList(c *gin.Context) {
 		req.PageSize = 20
 	}
 
+	category := c.DefaultQuery("category", "all")
+
 	var items []model.BookshelfItem
 	var total int64
 
-	db.DB.Model(&model.BookshelfItem{}).Where("user_id = ?", userID).Count(&total)
-	db.DB.Where("user_id = ?", userID).Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&items)
+	query := db.DB.Model(&model.BookshelfItem{}).Where("user_id = ?", userID)
+
+	switch category {
+	case "favorite":
+		query = query.Where("is_favorite = ?", true)
+	case "all":
+	}
+
+	query.Count(&total)
+	query.Offset(req.GetOffset()).Limit(req.GetLimit()).Order("last_read_time DESC").Find(&items)
 
 	list := make([]model.BookshelfItemResponse, 0)
 	for _, item := range items {
@@ -53,6 +64,7 @@ func (h *Handler) GetList(c *gin.Context) {
 			Progress:        item.Progress,
 			ChapterIndex:    chapterIndex,
 			IsFinished:      item.IsFinished,
+			IsFavorite:      item.IsFavorite,
 		})
 	}
 
@@ -75,8 +87,9 @@ func (h *Handler) Add(c *gin.Context) {
 	}
 
 	item := model.BookshelfItem{
-		UserID: userID,
-		BookID: bookID,
+		UserID:     userID,
+		BookID:     bookID,
+		IsFavorite: true,
 	}
 
 	if err := db.DB.Create(&item).Error; err != nil {
@@ -95,6 +108,57 @@ func (h *Handler) Add(c *gin.Context) {
 	}
 
 	c.JSON(200, model.Success(nil))
+}
+
+func (h *Handler) ToggleFavorite(c *gin.Context) {
+	userID := c.GetString("userId")
+	bookID := c.Param("bookId")
+
+	if bookID == "" {
+		c.JSON(400, model.Error(1001, "参数错误"))
+		return
+	}
+
+	var item model.BookshelfItem
+	if err := db.DB.Where("user_id = ? AND book_id = ?", userID, bookID).First(&item).Error; err != nil {
+		item = model.BookshelfItem{
+			UserID:     userID,
+			BookID:     bookID,
+			IsFavorite: true,
+		}
+		if err := db.DB.Create(&item).Error; err != nil {
+			c.JSON(500, model.Error(1005, "服务器内部错误"))
+			return
+		}
+		c.JSON(200, model.Success(gin.H{"isFavorite": true}))
+		return
+	}
+
+	newState := !item.IsFavorite
+	if err := db.DB.Model(&item).Update("is_favorite", newState).Error; err != nil {
+		c.JSON(500, model.Error(1005, "服务器内部错误"))
+		return
+	}
+
+	c.JSON(200, model.Success(gin.H{"isFavorite": newState}))
+}
+
+func (h *Handler) GetFavoriteStatus(c *gin.Context) {
+	userID := c.GetString("userId")
+	bookID := c.Param("bookId")
+
+	if bookID == "" {
+		c.JSON(400, model.Error(1001, "参数错误"))
+		return
+	}
+
+	var item model.BookshelfItem
+	var isFavorite bool
+	if err := db.DB.Where("user_id = ? AND book_id = ?", userID, bookID).First(&item).Error; err == nil {
+		isFavorite = item.IsFavorite
+	}
+
+	c.JSON(200, model.Success(gin.H{"isFavorite": isFavorite}))
 }
 
 func (h *Handler) Remove(c *gin.Context) {
@@ -130,9 +194,18 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 	}
 
 	var chapter model.Chapter
+	var chapterTitle string
+	var chapterID string
+	var chapterIndex int
+
 	if err := db.DB.Where("book_id = ? AND `index` = ?", bookID, req.ChapterIndex).First(&chapter).Error; err != nil {
-		c.JSON(400, model.Error(1004, "资源不存在"))
-		return
+		chapterTitle = fmt.Sprintf("第%d章", req.ChapterIndex+1)
+		chapterID = ""
+		chapterIndex = req.ChapterIndex
+	} else {
+		chapterTitle = chapter.Title
+		chapterID = chapter.ChapterID
+		chapterIndex = chapter.Index
 	}
 
 	var item model.BookshelfItem
@@ -148,10 +221,10 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{
-		"chapter_id":        chapter.ChapterID,
+		"chapter_id":        chapterID,
 		"progress":          req.Progress,
 		"position":          req.Position,
-		"last_read_chapter": chapter.Title,
+		"last_read_chapter": chapterTitle,
 		"last_read_time":    utils.CurrentTime(),
 		"is_finished":       req.Progress >= 100,
 	}
@@ -161,7 +234,7 @@ func (h *Handler) UpdateProgress(c *gin.Context) {
 		return
 	}
 
-	user.RecordReadingHistory(userID, bookID, chapter.Index, req.Progress, req.Position, chapter.Title)
+	user.RecordReadingHistory(userID, bookID, chapterIndex, req.Progress, req.Position, chapterTitle)
 
 	c.JSON(200, model.Success(nil))
 }

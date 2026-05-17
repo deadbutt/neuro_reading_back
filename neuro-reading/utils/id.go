@@ -54,6 +54,10 @@ func GenerateHistoryID() string {
 	return fmt.Sprintf("rh_%d", time.Now().UnixNano())
 }
 
+func GenerateNotificationID() string {
+	return fmt.Sprintf("nt_%d", time.Now().UnixNano())
+}
+
 func GenerateCode() string {
 	return fmt.Sprintf("%06d", rand.Intn(1000000))
 }

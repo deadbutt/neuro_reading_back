@@ -11,6 +11,7 @@ import (
 	"neuro-reading/creator"
 	"neuro-reading/feed"
 	"neuro-reading/middleware"
+	"neuro-reading/notification"
 	"neuro-reading/paragraph_comment"
 	"neuro-reading/upload"
 	"neuro-reading/user"
@@ -37,6 +38,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	paragraphCommentHandler := paragraph_comment.NewHandler()
 	authorHandler := author.NewHandler()
 	feedHandler := feed.NewHandler()
+	notificationHandler := notification.NewHandler()
 	articleHandler := article.NewHandler(cfg)
 	creatorHandler := creator.NewHandler(cfg)
 
@@ -71,6 +73,8 @@ func Setup(cfg *config.Config) *gin.Engine {
 		bookshelfGroup.POST("/:bookId", bookshelfHandler.Add)
 		bookshelfGroup.DELETE("/:bookId", bookshelfHandler.Remove)
 		bookshelfGroup.PUT("/:bookId/progress", bookshelfHandler.UpdateProgress)
+		bookshelfGroup.POST("/:bookId/favorite", bookshelfHandler.ToggleFavorite)
+		bookshelfGroup.GET("/:bookId/favorite", bookshelfHandler.GetFavoriteStatus)
 	}
 
 	bookGroup := api.Group("/books")
@@ -118,6 +122,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		authorGroup.GET("/:authorId/works", authorHandler.GetWorks)
 		authorGroup.GET("/:authorId/activities", authorHandler.GetActivities)
 	}
+	api.GET("/authors/:authorId/follow-status", middleware.AuthMiddleware(&cfg.JWT), authorHandler.GetFollowStatus)
 
 	feedGroup := api.Group("/feed")
 	feedGroup.Use(middleware.AuthMiddleware(&cfg.JWT))
@@ -125,6 +130,15 @@ func Setup(cfg *config.Config) *gin.Engine {
 		feedGroup.GET("", feedHandler.GetFeed)
 		feedGroup.POST("/:feedId/like", feedHandler.LikeFeed)
 		feedGroup.DELETE("/:feedId/like", feedHandler.UnlikeFeed)
+	}
+
+	notificationGroup := api.Group("/notifications")
+	notificationGroup.Use(middleware.AuthMiddleware(&cfg.JWT))
+	{
+		notificationGroup.GET("", notificationHandler.GetList)
+		notificationGroup.GET("/count", notificationHandler.GetUnreadCount)
+		notificationGroup.POST("/:notificationId/read", notificationHandler.MarkAsRead)
+		notificationGroup.POST("/read-all", notificationHandler.MarkAllAsRead)
 	}
 
 	uploadHandler := upload.NewHandler(cfg)
@@ -141,23 +155,23 @@ func Setup(cfg *config.Config) *gin.Engine {
 	}
 
 	creatorGroup := api.Group("/creator")
+	creatorGroup.Use(middleware.AuthMiddleware(&cfg.JWT))
 	{
-		creatorGroup.POST("/register", creatorHandler.Register)
-		creatorGroup.GET("/profile", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetProfile)
-		creatorGroup.PUT("/profile", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UpdateProfile)
-		creatorGroup.GET("/works", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetMyWorks)
-		creatorGroup.POST("/works", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.CreateWork)
-		creatorGroup.GET("/works/:workId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetWork)
-		creatorGroup.PUT("/works/:workId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UpdateWork)
-		creatorGroup.DELETE("/works/:workId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.DeleteWork)
-		creatorGroup.POST("/works/:workId/publish", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.PublishWork)
-		creatorGroup.POST("/works/:workId/chapters", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.CreateChapter)
-		creatorGroup.GET("/works/:workId/chapters/:chapterId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.GetChapter)
-		creatorGroup.PUT("/works/:workId/chapters/:chapterId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UpdateChapter)
-		creatorGroup.DELETE("/works/:workId/chapters/:chapterId", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.DeleteChapter)
-		creatorGroup.POST("/works/upload/docx", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadDocx)
-		creatorGroup.POST("/works/upload/txt", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadTxt)
-		creatorGroup.POST("/works/upload/cover", middleware.AuthMiddleware(&cfg.JWT), creatorHandler.UploadCover)
+		creatorGroup.GET("/profile", creatorHandler.GetProfile)
+		creatorGroup.PUT("/profile", creatorHandler.UpdateProfile)
+		creatorGroup.GET("/works", creatorHandler.GetMyWorks)
+		creatorGroup.POST("/works", creatorHandler.CreateWork)
+		creatorGroup.GET("/works/:workId", creatorHandler.GetWork)
+		creatorGroup.PUT("/works/:workId", creatorHandler.UpdateWork)
+		creatorGroup.DELETE("/works/:workId", creatorHandler.DeleteWork)
+		creatorGroup.POST("/works/:workId/publish", creatorHandler.PublishWork)
+		creatorGroup.POST("/works/:workId/chapters", creatorHandler.CreateChapter)
+		creatorGroup.GET("/works/:workId/chapters/:chapterId", creatorHandler.GetChapter)
+		creatorGroup.PUT("/works/:workId/chapters/:chapterId", creatorHandler.UpdateChapter)
+		creatorGroup.DELETE("/works/:workId/chapters/:chapterId", creatorHandler.DeleteChapter)
+		creatorGroup.POST("/works/upload/docx", creatorHandler.UploadDocx)
+		creatorGroup.POST("/works/upload/txt", creatorHandler.UploadTxt)
+		creatorGroup.POST("/works/upload/cover", creatorHandler.UploadCover)
 	}
 
 	r.GET("/uploads/:filename", func(c *gin.Context) {

@@ -39,7 +39,6 @@ func Init(cfg *config.Config) error {
 func autoMigrate() error {
 	return DB.AutoMigrate(
 		&model.User{},
-		&model.Author{},
 		&model.Book{},
 		&model.Chapter{},
 		&model.Article{},
@@ -49,10 +48,10 @@ func autoMigrate() error {
 		&model.Follow{},
 		&model.Like{},
 		&model.FeedActivity{},
-		&model.Creator{},
 		&model.Work{},
 		&model.WorkChapter{},
 		&model.ArticleStats{},
 		&model.ReadingHistory{},
+		&model.Notification{},
 	)
 }

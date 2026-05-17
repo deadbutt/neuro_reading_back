@@ -3,6 +3,7 @@ package comment
 import (
 	"neuro-reading/db"
 	"neuro-reading/model"
+	"neuro-reading/notification"
 	"neuro-reading/utils"
 
 	"github.com/gin-gonic/gin"
@@ -114,6 +115,9 @@ func (h *Handler) CreateComment(c *gin.Context) {
 		return
 	}
 
+	var currentUser model.User
+	db.DB.Where("user_id = ?", userID).First(&currentUser)
+
 	comment := model.Comment{
 		CommentID:  utils.GenerateCommentID(),
 		BookID:     bookID,
@@ -130,19 +134,32 @@ func (h *Handler) CreateComment(c *gin.Context) {
 
 	if req.ParentID != nil {
 		db.DB.Model(&model.Comment{}).Where("comment_id = ?", *req.ParentID).UpdateColumn("reply_count", gorm.Expr("reply_count + 1"))
+
+		var parentComment model.Comment
+		if err := db.DB.Where("comment_id = ?", *req.ParentID).First(&parentComment).Error; err == nil {
+			if parentComment.UserID != userID {
+				notification.CreateNotification(
+					parentComment.UserID,
+					"comment_reply",
+					"评论回复",
+					currentUser.Nickname+" 回复了你的评论："+req.Content,
+					bookID,
+					userID,
+					currentUser.Nickname,
+					currentUser.Avatar,
+				)
+			}
+		}
 	}
 
 	db.DB.Model(&model.Book{}).Where("book_id = ?", bookID).UpdateColumn("comment_count", gorm.Expr("comment_count + 1"))
-
-	var user model.User
-	db.DB.Where("user_id = ?", userID).First(&user)
 
 	c.JSON(200, model.Success(model.CommentResponse{
 		CommentID:  comment.CommentID,
 		BookID:     comment.BookID,
 		UserID:     comment.UserID,
-		UserName:   user.Nickname,
-		UserAvatar: user.Avatar,
+		UserName:   currentUser.Nickname,
+		UserAvatar: currentUser.Avatar,
 		Content:    comment.Content,
 		CreateTime: comment.CreateTime,
 		LikeCount:  0,

@@ -214,8 +214,6 @@ func (h *Handler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	db.DB.Model(&model.Creator{}).Where("account = ?", req.Account).Update("password", hashedPassword)
-
 	utils.DeleteVerifyCode(req.Account)
 
 	c.JSON(200, model.Success(nil))

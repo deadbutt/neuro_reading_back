@@ -34,119 +34,33 @@ func NewHandler(cfg *config.Config) *Handler {
 	return &Handler{cfg: cfg, articleDir: articleDir}
 }
 
-func (h *Handler) Register(c *gin.Context) {
-	var req model.CreatorRegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, model.Error(1001, "参数错误"))
-		return
-	}
-
-	if req.Password != req.ConfirmPassword {
-		c.JSON(400, model.Error(1004, "两次密码不一致"))
-		return
-	}
-
-	var existing model.Creator
-	if err := db.DB.Where("account = ?", req.Account).First(&existing).Error; err == nil {
-		c.JSON(400, model.Error(2001, "账号已存在"))
-		return
-	}
-
-	now := time.Now().Format("2006-01-02 15:04:05")
-	hashedPassword, err := utils.HashPassword(req.Password)
-	if err != nil {
-		c.JSON(500, model.Error(1005, "注册失败"))
-		return
-	}
-
-	creator := model.Creator{
-		CreatorID:     utils.GenerateCreatorID(),
-		Account:       req.Account,
-		Password:      hashedPassword,
-		Name:          req.Name,
-		Email:         req.Email,
-		CreateTime:    now,
-		LastLoginTime: now,
-		Status:        1,
-	}
-
-	if err := db.DB.Create(&creator).Error; err != nil {
-		c.JSON(500, model.Error(1005, "注册失败"))
-		return
-	}
-
-	token, _, _ := utils.GenerateToken(creator.CreatorID, "access", &h.cfg.JWT)
-
-	c.JSON(200, model.Success(gin.H{
-		"creatorId": creator.CreatorID,
-		"account":   creator.Account,
-		"name":      creator.Name,
-		"token":     token,
-	}))
-}
-
-func (h *Handler) Login(c *gin.Context) {
-	var req model.CreatorLoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, model.Error(1001, "参数错误"))
-		return
-	}
-
-	var creator model.Creator
-	if err := db.DB.Where("account = ?", req.Account).First(&creator).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.JSON(400, model.Error(2002, "账号或密码错误"))
-			return
-		}
-		c.JSON(500, model.Error(1005, "服务器内部错误"))
-		return
-	}
-
-	if !utils.CheckPassword(req.Password, creator.Password) {
-		c.JSON(400, model.Error(2002, "账号或密码错误"))
-		return
-	}
-
-	now := time.Now().Format("2006-01-02 15:04:05")
-	db.DB.Model(&creator).Update("last_login_time", now)
-
-	token, _, _ := utils.GenerateToken(creator.CreatorID, "access", &h.cfg.JWT)
-
-	c.JSON(200, model.Success(gin.H{
-		"creatorId": creator.CreatorID,
-		"account":   creator.Account,
-		"name":      creator.Name,
-		"token":     token,
-	}))
-}
-
 func (h *Handler) GetProfile(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 
-	creator, err := h.getOrCreateCreator(creatorID)
-	if err != nil {
+	var user model.User
+	if err := db.DB.Where("user_id = ?", userID).First(&user).Error; err != nil {
 		c.JSON(404, model.Error(1004, "用户不存在"))
 		return
 	}
 
 	var articleCount int64
-	db.DB.Model(&model.Article{}).Where("creator_id = ?", creatorID).Count(&articleCount)
+	db.DB.Model(&model.Article{}).Where("creator_id = ?", userID).Count(&articleCount)
 
 	c.JSON(200, model.Success(model.CreatorProfileResponse{
-		CreatorID:     creator.CreatorID,
-		Account:       creator.Account,
-		Name:          creator.Name,
-		Avatar:        creator.Avatar,
-		Description:   creator.Description,
-		Email:         creator.Email,
+		CreatorID:     user.UserID,
+		Account:       user.Account,
+		Name:          user.Nickname,
+		Avatar:        user.Avatar,
+		Description:   user.Bio,
+		Email:         "",
 		ArticleCount:  int(articleCount),
-		CreateTime:    creator.CreateTime,
-		LastLoginTime: creator.LastLoginTime,
+		CreateTime:    user.CreatedAt.Format("2006-01-02 15:04:05"),
+		LastLoginTime: user.UpdatedAt.Format("2006-01-02 15:04:05"),
 	}))
 }
 
 func (h *Handler) UpdateProfile(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 
 	var req model.CreatorProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -156,57 +70,24 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 
 	updates := make(map[string]interface{})
 	if req.Name != "" {
-		updates["name"] = req.Name
+		updates["nickname"] = req.Name
 	}
 	if req.Avatar != "" {
 		updates["avatar"] = req.Avatar
 	}
 	if req.Description != "" {
-		updates["description"] = req.Description
+		updates["bio"] = req.Description
 	}
 
 	if len(updates) > 0 {
-		db.DB.Model(&model.Creator{}).Where("creator_id = ?", creatorID).Updates(updates)
+		db.DB.Model(&model.User{}).Where("user_id = ?", userID).Updates(updates)
 	}
 
 	c.JSON(200, model.Success(nil))
 }
 
-func (h *Handler) getOrCreateCreator(userID string) (*model.Creator, error) {
-	var creator model.Creator
-	err := db.DB.Where("creator_id = ?", userID).First(&creator).Error
-	if err == nil {
-		return &creator, nil
-	}
-
-	var user model.User
-	if err := db.DB.Where("user_id = ?", userID).First(&user).Error; err != nil {
-		return nil, err
-	}
-
-	now := time.Now().Format("2006-01-02 15:04:05")
-	creator = model.Creator{
-		CreatorID:     user.UserID,
-		Account:       user.Account,
-		Password:      user.Password,
-		// Note: user.Password is already hashed
-		Name:          user.Nickname,
-		Avatar:        user.Avatar,
-		Description:   user.Bio,
-		CreateTime:    now,
-		LastLoginTime: now,
-		Status:        1,
-	}
-
-	if err := db.DB.Create(&creator).Error; err != nil {
-		return nil, err
-	}
-
-	return &creator, nil
-}
-
 func (h *Handler) CreateWork(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 
 	var req model.CreateWorkRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -214,8 +95,8 @@ func (h *Handler) CreateWork(c *gin.Context) {
 		return
 	}
 
-	creator, err := h.getOrCreateCreator(creatorID)
-	if err != nil {
+	var user model.User
+	if err := db.DB.Where("user_id = ?", userID).First(&user).Error; err != nil {
 		c.JSON(404, model.Error(1004, "用户不存在"))
 		return
 	}
@@ -228,15 +109,15 @@ func (h *Handler) CreateWork(c *gin.Context) {
 	tags := strings.Join(req.Tags, ",")
 
 	article := model.Article{
-		ArticleID:  articleID,
-		CreatorID:  creatorID,
-		Title:      req.Title,
-		Author:     creator.Name,
-		Summary:    req.Summary,
-		Tags:       tags,
-		Cover:      req.Cover,
-		Status:     "draft",
-		WordCount:  0,
+		ArticleID:   articleID,
+		CreatorID:   userID,
+		Title:       req.Title,
+		Author:      user.Nickname,
+		Summary:     req.Summary,
+		Tags:        tags,
+		Cover:       req.Cover,
+		Status:      "draft",
+		WordCount:   0,
 		PublishTime: time.Now(),
 	}
 
@@ -247,14 +128,14 @@ func (h *Handler) CreateWork(c *gin.Context) {
 
 	c.JSON(200, model.Success(gin.H{
 		"articleId": articleID,
-		"creatorId": creatorID,
+		"creatorId": userID,
 		"title":     req.Title,
 		"status":    "draft",
 	}))
 }
 
 func (h *Handler) GetMyWorks(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 
 	var req model.PageRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
@@ -265,7 +146,7 @@ func (h *Handler) GetMyWorks(c *gin.Context) {
 	status := c.Query("status")
 
 	var total int64
-	query := db.DB.Model(&model.Article{}).Where("creator_id = ?", creatorID)
+	query := db.DB.Model(&model.Article{}).Where("creator_id = ?", userID)
 	if status != "" && status != "all" {
 		query = query.Where("status = ?", status)
 	}
@@ -294,11 +175,11 @@ func (h *Handler) GetMyWorks(c *gin.Context) {
 }
 
 func (h *Handler) GetWork(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 	articleID := c.Param("workId")
 
 	var article model.Article
-	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, creatorID).First(&article).Error; err != nil {
+	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, userID).First(&article).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(404, model.Error(1004, "作品不存在"))
 			return
@@ -336,11 +217,11 @@ func (h *Handler) GetWork(c *gin.Context) {
 }
 
 func (h *Handler) UpdateWork(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 	articleID := c.Param("workId")
 
 	var article model.Article
-	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, creatorID).First(&article).Error; err != nil {
+	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, userID).First(&article).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(404, model.Error(1004, "作品不存在"))
 			return
@@ -377,11 +258,11 @@ func (h *Handler) UpdateWork(c *gin.Context) {
 }
 
 func (h *Handler) DeleteWork(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 	articleID := c.Param("workId")
 
 	var article model.Article
-	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, creatorID).First(&article).Error; err != nil {
+	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, userID).First(&article).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(404, model.Error(1004, "作品不存在"))
 			return
@@ -399,11 +280,11 @@ func (h *Handler) DeleteWork(c *gin.Context) {
 }
 
 func (h *Handler) CreateChapter(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 	articleID := c.Param("workId")
 
 	var article model.Article
-	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, creatorID).First(&article).Error; err != nil {
+	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, userID).First(&article).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(404, model.Error(1004, "作品不存在"))
 			return
@@ -446,20 +327,20 @@ func (h *Handler) CreateChapter(c *gin.Context) {
 	})
 
 	c.JSON(200, model.Success(gin.H{
-		"chapterId":  chapter.ChapterID,
-		"index":      chapterIndex,
-		"title":      chapter.Title,
-		"wordCount":  wordCount,
+		"chapterId": chapter.ChapterID,
+		"index":     chapterIndex,
+		"title":     chapter.Title,
+		"wordCount": wordCount,
 	}))
 }
 
 func (h *Handler) GetChapter(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 	articleID := c.Param("workId")
 	chapterIndexStr := c.Param("chapterId")
 
 	var article model.Article
-	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, creatorID).First(&article).Error; err != nil {
+	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, userID).First(&article).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(404, model.Error(1004, "作品不存在"))
 			return
@@ -494,12 +375,12 @@ func (h *Handler) GetChapter(c *gin.Context) {
 }
 
 func (h *Handler) UpdateChapter(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 	articleID := c.Param("workId")
 	chapterIndexStr := c.Param("chapterId")
 
 	var article model.Article
-	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, creatorID).First(&article).Error; err != nil {
+	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, userID).First(&article).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(404, model.Error(1004, "作品不存在"))
 			return
@@ -549,12 +430,12 @@ func (h *Handler) UpdateChapter(c *gin.Context) {
 }
 
 func (h *Handler) DeleteChapter(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 	articleID := c.Param("workId")
 	chapterIndexStr := c.Param("chapterId")
 
 	var article model.Article
-	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, creatorID).First(&article).Error; err != nil {
+	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, userID).First(&article).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(404, model.Error(1004, "作品不存在"))
 			return
@@ -601,11 +482,11 @@ func (h *Handler) DeleteChapter(c *gin.Context) {
 }
 
 func (h *Handler) PublishWork(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 	articleID := c.Param("workId")
 
 	var article model.Article
-	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, creatorID).First(&article).Error; err != nil {
+	if err := db.DB.Where("article_id = ? AND creator_id = ?", articleID, userID).First(&article).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(404, model.Error(1004, "作品不存在"))
 			return
@@ -626,16 +507,16 @@ func (h *Handler) PublishWork(c *gin.Context) {
 
 	c.JSON(200, model.Success(gin.H{
 		"articleId": articleID,
-		"creatorId": creatorID,
+		"creatorId": userID,
 		"status":    "published",
 	}))
 }
 
 func (h *Handler) UploadDocx(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 
-	creator, err := h.getOrCreateCreator(creatorID)
-	if err != nil {
+	var user model.User
+	if err := db.DB.Where("user_id = ?", userID).First(&user).Error; err != nil {
 		c.JSON(404, model.Error(1004, "用户不存在"))
 		return
 	}
@@ -701,21 +582,21 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 	tagsStr := c.PostForm("tags")
 	cover := c.PostForm("cover")
 
-	author := creator.Name
+	author := user.Nickname
 	if len([]rune(author)) > 50 {
 		author = string([]rune(author)[:50])
 	}
 
 	article := model.Article{
-		ArticleID:  articleID,
-		CreatorID:  creatorID,
-		Title:      title,
-		Author:     author,
-		Summary:    summary,
-		Tags:       tagsStr,
-		Cover:      cover,
-		Status:     "draft",
-		WordCount:  0,
+		ArticleID:   articleID,
+		CreatorID:   userID,
+		Title:       title,
+		Author:      author,
+		Summary:     summary,
+		Tags:        tagsStr,
+		Cover:       cover,
+		Status:      "draft",
+		WordCount:   0,
 		PublishTime: time.Now(),
 	}
 
@@ -752,7 +633,7 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 
 	c.JSON(200, model.Success(gin.H{
 		"articleId":    articleID,
-		"creatorId":    creatorID,
+		"creatorId":    userID,
 		"title":        title,
 		"chapterCount": len(parsedChapters),
 		"wordCount":    totalWordCount,
@@ -760,10 +641,10 @@ func (h *Handler) UploadDocx(c *gin.Context) {
 }
 
 func (h *Handler) UploadTxt(c *gin.Context) {
-	creatorID := c.GetString("userId")
+	userID := c.GetString("userId")
 
-	creator, err := h.getOrCreateCreator(creatorID)
-	if err != nil {
+	var user model.User
+	if err := db.DB.Where("user_id = ?", userID).First(&user).Error; err != nil {
 		c.JSON(404, model.Error(1004, "用户不存在"))
 		return
 	}
@@ -835,21 +716,21 @@ func (h *Handler) UploadTxt(c *gin.Context) {
 	tagsStr := c.PostForm("tags")
 	cover := c.PostForm("cover")
 
-	author := creator.Name
+	author := user.Nickname
 	if len([]rune(author)) > 50 {
 		author = string([]rune(author)[:50])
 	}
 
 	article := model.Article{
-		ArticleID:  articleID,
-		CreatorID:  creatorID,
-		Title:      title,
-		Author:     author,
-		Summary:    summary,
-		Tags:       tagsStr,
-		Cover:      cover,
-		Status:     "draft",
-		WordCount:  0,
+		ArticleID:   articleID,
+		CreatorID:   userID,
+		Title:       title,
+		Author:      author,
+		Summary:     summary,
+		Tags:        tagsStr,
+		Cover:       cover,
+		Status:      "draft",
+		WordCount:   0,
 		PublishTime: time.Now(),
 	}
 
@@ -886,7 +767,7 @@ func (h *Handler) UploadTxt(c *gin.Context) {
 
 	c.JSON(200, model.Success(gin.H{
 		"articleId":    articleID,
-		"creatorId":    creatorID,
+		"creatorId":    userID,
 		"title":        title,
 		"chapterCount": len(parsedChapters),
 		"wordCount":    totalWordCount,

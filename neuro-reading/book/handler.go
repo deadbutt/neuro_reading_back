@@ -15,7 +15,7 @@ func NewHandler() *Handler {
 	return &Handler{}
 }
 
-func (h *Handler) buildBookResponse(book model.Book, author model.Author) model.BookResponse {
+func (h *Handler) buildBookResponse(book model.Book, user model.User) model.BookResponse {
 	var tags []string
 	if book.Tags != "" {
 		tags = strings.Split(book.Tags, ",")
@@ -24,10 +24,10 @@ func (h *Handler) buildBookResponse(book model.Book, author model.Author) model.
 		BookID: book.BookID,
 		Title:  book.Title,
 		Author: model.AuthorResponse{
-			AuthorID:    author.AuthorID,
-			Name:        author.Name,
-			Avatar:      author.Avatar,
-			Description: author.Description,
+			AuthorID:    user.UserID,
+			Name:        user.Nickname,
+			Avatar:      user.Avatar,
+			Description: user.Bio,
 		},
 		Cover:          book.Cover,
 		Description:    book.Description,
@@ -54,7 +54,7 @@ func (h *Handler) GetRecommend(c *gin.Context) {
 	db.DB.Model(&model.Book{}).Count(&total)
 	db.DB.Order("rating DESC").Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&books)
 
-	list := h.buildBookListWithAuthors(books)
+	list := h.buildBookListWithUsers(books)
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
 }
 
@@ -71,7 +71,7 @@ func (h *Handler) GetHot(c *gin.Context) {
 	db.DB.Model(&model.Book{}).Count(&total)
 	db.DB.Order("rating_count DESC").Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&books)
 
-	list := h.buildBookListWithAuthors(books)
+	list := h.buildBookListWithUsers(books)
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
 }
 
@@ -88,11 +88,11 @@ func (h *Handler) GetLatest(c *gin.Context) {
 	db.DB.Model(&model.Book{}).Count(&total)
 	db.DB.Order("last_update_time DESC").Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&books)
 
-	list := h.buildBookListWithAuthors(books)
+	list := h.buildBookListWithUsers(books)
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
 }
 
-func (h *Handler) buildBookListWithAuthors(books []model.Book) []model.BookResponse {
+func (h *Handler) buildBookListWithUsers(books []model.Book) []model.BookResponse {
 	if len(books) == 0 {
 		return []model.BookResponse{}
 	}
@@ -102,19 +102,19 @@ func (h *Handler) buildBookListWithAuthors(books []model.Book) []model.BookRespo
 		authorIDs = append(authorIDs, book.AuthorID)
 	}
 
-	var authors []model.Author
-	authorMap := make(map[string]model.Author)
+	var users []model.User
+	userMap := make(map[string]model.User)
 	if len(authorIDs) > 0 {
-		db.DB.Where("author_id IN ?", authorIDs).Find(&authors)
-		for _, author := range authors {
-			authorMap[author.AuthorID] = author
+		db.DB.Where("user_id IN ?", authorIDs).Find(&users)
+		for _, user := range users {
+			userMap[user.UserID] = user
 		}
 	}
 
 	list := make([]model.BookResponse, 0, len(books))
 	for _, book := range books {
-		author := authorMap[book.AuthorID]
-		list = append(list, h.buildBookResponse(book, author))
+		user := userMap[book.AuthorID]
+		list = append(list, h.buildBookResponse(book, user))
 	}
 	return list
 }
@@ -133,8 +133,8 @@ func (h *Handler) GetDetail(c *gin.Context) {
 		return
 	}
 
-	var author model.Author
-	db.DB.Where("author_id = ?", book.AuthorID).First(&author)
+	var user model.User
+	db.DB.Where("user_id = ?", book.AuthorID).First(&user)
 
 	var chapters []model.Chapter
 	db.DB.Where("book_id = ?", bookID).Order("index ASC").Limit(10).Find(&chapters)
@@ -170,10 +170,10 @@ func (h *Handler) GetDetail(c *gin.Context) {
 		BookID: book.BookID,
 		Title:  book.Title,
 		Author: model.AuthorResponse{
-			AuthorID:    author.AuthorID,
-			Name:        author.Name,
-			Avatar:      author.Avatar,
-			Description: author.Description,
+			AuthorID:    user.UserID,
+			Name:        user.Nickname,
+			Avatar:      user.Avatar,
+			Description: user.Bio,
 		},
 		Cover:          book.Cover,
 		Description:    book.Description,
@@ -284,7 +284,7 @@ func (h *Handler) Search(c *gin.Context) {
 	db.DB.Where("title LIKE ? OR description LIKE ?", "%"+keyword+"%", "%"+keyword+"%").
 		Offset(req.GetOffset()).Limit(req.GetLimit()).Find(&books)
 
-	list := h.buildBookListWithAuthors(books)
+	list := h.buildBookListWithUsers(books)
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
 }
 

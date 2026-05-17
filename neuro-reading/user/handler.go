@@ -162,19 +162,19 @@ func (h *Handler) GetFollowing(c *gin.Context) {
 		authorIDs = append(authorIDs, f.AuthorID)
 	}
 
-	var authors []model.Author
-	if len(authorIDs) > 0 {
-		db.DB.Where("author_id IN ?", authorIDs).Find(&authors)
-	}
-
 	list := make([]model.AuthorResponse, 0)
-	for _, a := range authors {
-		list = append(list, model.AuthorResponse{
-			AuthorID:    a.AuthorID,
-			Name:        a.Name,
-			Avatar:      a.Avatar,
-			Description: a.Description,
-		})
+	if len(authorIDs) > 0 {
+		var users []model.User
+		db.DB.Where("user_id IN ?", authorIDs).Find(&users)
+
+		for _, u := range users {
+			list = append(list, model.AuthorResponse{
+				AuthorID:    u.UserID,
+				Name:        u.Nickname,
+				Avatar:      u.Avatar,
+				Description: u.Bio,
+			})
+		}
 	}
 
 	c.JSON(200, model.PageSuccess(list, total, req.Page, req.PageSize))
